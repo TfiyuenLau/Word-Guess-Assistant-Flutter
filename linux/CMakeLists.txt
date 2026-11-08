@@ -13,6 +13,13 @@ set(APPLICATION_ID "com.example.word_guess_assistant_flutter")
 # versions of CMake.
 cmake_policy(SET CMP0063 NEW)
 
+# Ensure host system linker (/usr/bin/ld) is used to avoid conda/cuda-env linker conflicts
+if(EXISTS "/usr/bin/ld")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=/usr/bin/ld")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fuse-ld=/usr/bin/ld")
+  set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -fuse-ld=/usr/bin/ld")
+endif()
+
 # Load bundled libraries from the lib/ directory relative to the binary.
 set(CMAKE_INSTALL_RPATH "$ORIGIN/lib")
 
