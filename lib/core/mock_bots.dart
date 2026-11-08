@@ -19,11 +19,21 @@ class MockBots {
   ];
 
   static const List<String> botAvatars = [
-    'agent_1',
-    'agent_2',
-    'agent_3',
-    'agent_4',
-    'agent_5',
+    'characters/detective.svg',
+    'characters/ninja.svg',
+    'characters/robot.svg',
+    'characters/hero.svg',
+    'characters/wizard.svg',
+    'animals/fox.svg',
+    'animals/cat.svg',
+    'animals/bear.svg',
+    'animals/rabbit.svg',
+    'animals/panda.svg',
+    'cyber/agent.svg',
+    'cyber/cyborg.svg',
+    'cyber/hacker.svg',
+    'cyber/neon.svg',
+    'cyber/glitch.svg',
   ];
 
   /// 生成指定数量的机器人玩家

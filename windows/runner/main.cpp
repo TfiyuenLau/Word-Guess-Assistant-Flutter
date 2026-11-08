@@ -26,7 +26,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
+  // Default to modern mobile device ratio (portrait)
+  Win32Window::Size size(420, 860);
   if (!window.Create(L"word_guess_assistant_flutter", origin, size)) {
     return EXIT_FAILURE;
   }

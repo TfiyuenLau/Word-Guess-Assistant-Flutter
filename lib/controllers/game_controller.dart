@@ -121,7 +121,7 @@ class GameController extends StateNotifier<RoomState> {
           selfPlayer: Player(
             id: 'agent_${Random().nextInt(899999) + 100000}',
             name: '特工_${Random().nextInt(8999) + 1000}',
-            avatar: 'agent_1',
+            avatar: 'characters/detective.svg',
           ),
         )) {
     _loadSavedProfile();
@@ -132,11 +132,14 @@ class GameController extends StateNotifier<RoomState> {
       final prefs = await SharedPreferences.getInstance();
       final savedId = prefs.getString('wga_player_id');
       final savedName = prefs.getString('wga_player_name');
-      final savedAvatar = prefs.getString('wga_player_avatar');
+      var savedAvatar = prefs.getString('wga_player_avatar');
 
       final id = savedId ?? state.selfPlayer.id;
       final name = savedName ?? state.selfPlayer.name;
-      final avatar = savedAvatar ?? state.selfPlayer.avatar;
+      if (savedAvatar == null || savedAvatar.startsWith('agent_')) {
+        savedAvatar = 'characters/detective.svg';
+      }
+      final avatar = savedAvatar;
 
       if (savedId == null) await prefs.setString('wga_player_id', id);
 

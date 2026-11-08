@@ -9,7 +9,9 @@ import '../modals/identity_card_dialog.dart';
 import '../modals/night_action_dialog.dart';
 import '../modals/player_mark_dialog.dart';
 import '../modals/settlement_dialog.dart';
+import '../modals/theme_picker_dialog.dart';
 import '../modals/vote_dialog.dart';
+import '../widgets/avatar_widget.dart';
 
 class RoomScreen extends ConsumerStatefulWidget {
   const RoomScreen({super.key});
@@ -96,6 +98,16 @@ class _RoomScreenState extends ConsumerState<RoomScreen> {
         ),
         actions: [
           IconButton(
+            tooltip: '终端主题风格',
+            icon: const Icon(Icons.palette_outlined),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (_) => const ThemePickerDialog(),
+              );
+            },
+          ),
+          IconButton(
             tooltip: '撤出房间',
             icon: const Icon(Icons.exit_to_app),
             onPressed: () {
@@ -145,9 +157,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> {
                   child: GridView.builder(
                     gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: 4,
-                      mainAxisSpacing: 8,
-                      crossAxisSpacing: 8,
-                      childAspectRatio: 1.1,
+                      mainAxisSpacing: 6,
+                      crossAxisSpacing: 6,
+                      childAspectRatio: 0.82,
                     ),
                     itemCount: roomState.players.length,
                     itemBuilder: (context, index) {
@@ -184,11 +196,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> {
                 Expanded(
                   child: ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     itemCount: roomState.chatMessages.length,
                     itemBuilder: (context, index) {
                       final msg = roomState.chatMessages[index];
-                      return _ChatMessageItem(message: msg);
+                      return _ChatMessageItem(
+                        message: msg,
+                        players: roomState.players,
+                        selfPlayerId: roomState.selfPlayer.id,
+                      );
                     },
                   ),
                 ),
@@ -530,20 +546,20 @@ class _PlayerCard extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.all(6),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
         decoration: BoxDecoration(
           color: isMe
               ? theme.colorScheme.primary.withValues(alpha: 0.12)
               : theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: isMe
                 ? theme.colorScheme.primary
                 : isAlive
                     ? theme.colorScheme.outlineVariant
-                    : Colors.red.shade300,
+                    : Colors.red.shade400,
             width: isMe ? 2 : 1,
           ),
         ),
@@ -553,20 +569,13 @@ class _PlayerCard extends StatelessWidget {
             Stack(
               clipBehavior: Clip.none,
               children: [
-                CircleAvatar(
-                  radius: 16,
-                  backgroundColor: isAlive
-                      ? theme.colorScheme.secondaryContainer
-                      : Colors.grey.shade400,
-                  child: Text(
-                    player.name.isNotEmpty ? player.name[0] : '?',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: isAlive
-                          ? theme.colorScheme.onSecondaryContainer
-                          : Colors.white,
-                    ),
+                Opacity(
+                  opacity: isAlive ? 1.0 : 0.4,
+                  child: AvatarWidget(
+                    avatar: player.avatar,
+                    size: 34,
+                    showBorder: isMe,
+                    borderColor: theme.colorScheme.primary,
                   ),
                 ),
                 if (!isAlive)
@@ -576,10 +585,17 @@ class _PlayerCard extends StatelessWidget {
                     child: Icon(Icons.cancel, color: Colors.red, size: 14),
                   ),
                 if (player.isBot)
-                  const Positioned(
-                    top: -2,
-                    right: -4,
-                    child: Icon(Icons.smart_toy, color: Colors.blue, size: 12),
+                  Positioned(
+                    top: -3,
+                    right: -3,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade700,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.smart_toy, color: Colors.white, size: 9),
+                    ),
                   ),
               ],
             ),
@@ -587,10 +603,12 @@ class _PlayerCard extends StatelessWidget {
             Text(
               player.name + (isMe ? ' (我)' : ''),
               style: TextStyle(
-                fontSize: 11,
-                fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
+                fontSize: 10,
+                fontWeight: isMe ? FontWeight.bold : FontWeight.w500,
+                color: isAlive ? theme.colorScheme.onSurface : theme.colorScheme.outline,
                 decoration: isAlive ? null : TextDecoration.lineThrough,
               ),
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
             if (mark != null)
@@ -603,7 +621,7 @@ class _PlayerCard extends StatelessWidget {
                 ),
                 child: Text(
                   GameRoles.getRoleLabel(mark),
-                  style: TextStyle(fontSize: 9, color: Colors.amber.shade900),
+                  style: TextStyle(fontSize: 8, color: Colors.amber.shade900, fontWeight: FontWeight.bold),
                 ),
               ),
           ],
@@ -615,8 +633,14 @@ class _PlayerCard extends StatelessWidget {
 
 class _ChatMessageItem extends StatelessWidget {
   final GameMessage message;
+  final List<Player> players;
+  final String selfPlayerId;
 
-  const _ChatMessageItem({required this.message});
+  const _ChatMessageItem({
+    required this.message,
+    required this.players,
+    required this.selfPlayerId,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -629,11 +653,11 @@ class _ChatMessageItem extends StatelessWidget {
     if (isSystem) {
       return Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.8),
+          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.75),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: theme.colorScheme.outlineVariant),
+          border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -641,16 +665,16 @@ class _ChatMessageItem extends StatelessWidget {
             Icon(
               Icons.campaign,
               color: theme.colorScheme.primary,
-              size: 18,
+              size: 16,
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Expanded(
               child: Text(
                 text,
                 style: TextStyle(
                   fontSize: 12,
                   color: theme.colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ),
@@ -659,31 +683,69 @@ class _ChatMessageItem extends StatelessWidget {
       );
     }
 
+    final isMe = senderId == selfPlayerId;
+    Player? sender;
+    for (final p in players) {
+      if (p.id == senderId) {
+        sender = p;
+        break;
+      }
+    }
+    final senderName = sender?.name ?? senderId;
+    final senderAvatar = sender?.avatar ?? '';
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
+      child: Row(
+        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            senderId,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: theme.colorScheme.primary,
+          if (!isMe) ...[
+            AvatarWidget(avatar: senderAvatar, size: 28),
+            const SizedBox(width: 8),
+          ],
+          Flexible(
+            child: Column(
+              crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                if (!isMe)
+                  Text(
+                    senderName,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                const SizedBox(height: 2),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isMe
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(12),
+                      topRight: const Radius.circular(12),
+                      bottomLeft: Radius.circular(isMe ? 12 : 2),
+                      bottomRight: Radius.circular(isMe ? 2 : 12),
+                    ),
+                  ),
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isMe ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 2),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              text,
-              style: const TextStyle(fontSize: 13),
-            ),
-          ),
+          if (isMe) ...[
+            const SizedBox(width: 8),
+            AvatarWidget(avatar: senderAvatar, size: 28),
+          ],
         ],
       ),
     );

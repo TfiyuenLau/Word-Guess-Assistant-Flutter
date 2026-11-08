@@ -17,7 +17,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('特工猜词助手'), findsOneWidget);
-    expect(find.text('特工代号与机密形象'), findsOneWidget);
-    expect(find.text('WebRTC P2P (外网快速联机)'), findsOneWidget);
+    expect(find.text('特工机密档案'), findsOneWidget);
+    expect(find.text('WebRTC P2P'), findsOneWidget);
   });
 }
