@@ -325,27 +325,34 @@ class _RoomScreenState extends ConsumerState<RoomScreen> {
                     ],
 
                     if (isBlankGuess) ...[
-                      FilledButton.tonalIcon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: theme.colorScheme.tertiaryContainer,
-                          foregroundColor: theme.colorScheme.onTertiaryContainer,
+                      if (roomState.myIdentity?.role == GameRoles.blank)
+                        FilledButton.tonalIcon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: theme.colorScheme.tertiaryContainer,
+                            foregroundColor: theme.colorScheme.onTertiaryContainer,
+                          ),
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (_) => BlankGuessDialog(
+                                hint: roomState.myIdentity?.hint,
+                                onGuess: (wA, wB) {
+                                  ref
+                                      .read(gameControllerProvider.notifier)
+                                      .submitBlankGuess(wA, wB);
+                                },
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.bolt),
+                          label: const Text('白板逆袭'),
+                        )
+                      else
+                        OutlinedButton.icon(
+                          onPressed: null,
+                          icon: const Icon(Icons.hourglass_top),
+                          label: const Text('等待白板逆袭猜词...'),
                         ),
-                        onPressed: () {
-                          showDialog(
-                            context: context,
-                            builder: (_) => BlankGuessDialog(
-                              hint: roomState.myIdentity?.hint,
-                              onGuess: (wA, wB) {
-                                ref
-                                    .read(gameControllerProvider.notifier)
-                                    .submitBlankGuess(wA, wB);
-                              },
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.bolt),
-                        label: const Text('白板逆袭'),
-                      ),
                       const SizedBox(width: 8),
                     ],
 

@@ -335,8 +335,10 @@ class GameController extends StateNotifier<RoomState> {
 
     _peerLeftSub = _transport?.onPeerLeft.listen((peerId) {
       if (state.isHost && _hostEngine != null) {
-        _hostEngine!.removePlayer(peerId);
-        _syncHostStateToAll();
+        if (_hostEngine!.phase == GamePhase.preparing) {
+          _hostEngine!.removePlayer(peerId);
+          _syncHostStateToAll();
+        }
       }
     });
   }
@@ -361,8 +363,25 @@ class GameController extends StateNotifier<RoomState> {
         final pname = payload['player_name']?.toString() ?? '特工';
         final pavatar = payload['avatar']?.toString() ?? 'agent_1';
         if (pid.isNotEmpty) {
+          final existing = _hostEngine?.players[pid];
           final newPlayer = Player(id: pid, name: pname, avatar: pavatar);
           _hostEngine?.addPlayer(newPlayer);
+
+          // 既有玩家断线重连恢复身份
+          if (existing != null && existing.role != null && existing.role != GameRoles.spectator) {
+            final assignment = _hostEngine?.getIdentityAssignment(pid);
+            if (assignment != null) {
+              _transport?.sendToPeer(
+                pid,
+                GameMessage.identity(
+                  role: assignment.role,
+                  word: assignment.word,
+                  hint: assignment.hint,
+                ),
+              );
+            }
+          }
+
           _syncHostStateToAll();
           _broadcastSystemChat('特工【$pname】潜入房间。');
         }
@@ -554,6 +573,8 @@ class GameController extends StateNotifier<RoomState> {
       _driveBotNightActions();
     } else if (res.phase == GamePhase.description) {
       _driveBotSpeeches();
+    } else if (res.phase == GamePhase.blankGuess) {
+      _driveBotBlankGuess();
     }
 
     _syncHostStateToAll();
@@ -732,6 +753,11 @@ class GameController extends StateNotifier<RoomState> {
     for (final entry in botVotes.entries) {
       _hostEngine!.submitVote(entry.key, entry.value);
     }
+    // 检查是否全员（如全员均为机器人或存活者仅剩机器人）已完成投票
+    final aliveCount = _hostEngine!.players.values.where((p) => p.isAlive).length;
+    if (aliveCount > 0 && _hostEngine!.votes.length >= aliveCount) {
+      advancePhase();
+    }
   }
 
   void _driveBotNightActions() {
@@ -739,6 +765,25 @@ class GameController extends StateNotifier<RoomState> {
     final botActions = MockBots.simulateBotNightActions(_hostEngine!);
     for (final entry in botActions.entries) {
       _hostEngine!.submitNightAction(entry.key, entry.value);
+    }
+  }
+
+  void _driveBotBlankGuess() {
+    if (_hostEngine == null) return;
+    final eliminatedId = _hostEngine!.lastEliminatedPlayerId;
+    if (eliminatedId != null) {
+      final p = _hostEngine!.players[eliminatedId];
+      if (p != null && p.isBot && p.role == GameRoles.blank) {
+        final guess = MockBots.simulateBotBlankGuess(_hostEngine!, eliminatedId);
+        if (guess != null) {
+          final res = _hostEngine!.submitBlankGuess(
+            playerId: eliminatedId,
+            guessA: guess['word_a'] ?? '',
+            guessB: guess['word_b'] ?? '',
+          );
+          _broadcastSystemChat(res.message);
+        }
+      }
     }
   }
 
@@ -761,7 +806,8 @@ class GameController extends StateNotifier<RoomState> {
 
   void _syncHostStateToAll() {
     if (_hostEngine == null) return;
-    final snapshot = _hostEngine!.toSnapshotMap();
+    // 对外广播脱敏快照，保护绝密词汇与未公开身份
+    final snapshot = _hostEngine!.toSnapshotMap(maskSecrets: true);
     final syncMsg = GameMessage.syncState(snapshot);
     _broadcastMessage(syncMsg);
 
@@ -783,7 +829,7 @@ class GameController extends StateNotifier<RoomState> {
 
   void _syncHostStateToPeer(String peerId) {
     if (_hostEngine == null) return;
-    final snapshot = _hostEngine!.toSnapshotMap();
+    final snapshot = _hostEngine!.toSnapshotMap(maskSecrets: true, forPlayerId: peerId);
     final syncMsg = GameMessage.syncState(snapshot);
     _transport?.sendToPeer(peerId, syncMsg);
   }

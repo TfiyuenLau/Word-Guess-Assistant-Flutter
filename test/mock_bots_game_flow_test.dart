@@ -71,5 +71,54 @@ void main() {
       expect(restoredEngine.wordA, engine.wordA);
       expect(restoredEngine.wordB, engine.wordB);
     });
+
+    test('机器人白板被投出时自动触发猜词行为模拟', () {
+      final engine = GameEngine();
+      final bots = MockBots.generateBots(4);
+      for (final b in bots) {
+        engine.addPlayer(b);
+      }
+      engine.startGame();
+
+      final blankBot = engine.players.values.firstWhere((p) => p.role == GameRoles.blank);
+      final guess = MockBots.simulateBotBlankGuess(engine, blankBot.id);
+      expect(guess, isNotNull);
+      expect(guess!['word_a'], isNotEmpty);
+      expect(guess['word_b'], isNotEmpty);
+
+      // 非白板特工无法触发
+      final otherBot = engine.players.values.firstWhere((p) => p.id != blankBot.id);
+      final invalidGuess = MockBots.simulateBotBlankGuess(engine, otherBot.id);
+      expect(invalidGuess, isNull);
+    });
+
+    test('全机器人环境夜间刺杀与胜负流转闭环测试', () {
+      final engine = GameEngine();
+      final bots = MockBots.generateBots(4);
+      for (final b in bots) {
+        engine.addPlayer(b);
+      }
+      engine.startGame();
+
+      // 进入黑夜阶段
+      engine.phase = GamePhase.nightAction;
+
+      // 机器人卧底执行暗杀
+      final botActions = MockBots.simulateBotNightActions(engine);
+      expect(botActions.isNotEmpty, isTrue);
+
+      for (final entry in botActions.entries) {
+        final res = engine.submitNightAction(entry.key, entry.value);
+        expect(res.success, isTrue);
+      }
+
+      // 天亮结算
+      final nextPhase = engine.advancePhase();
+      expect(
+        nextPhase.phase == GamePhase.description ||
+            nextPhase.phase == GamePhase.settlement,
+        isTrue,
+      );
+    });
   });
 }

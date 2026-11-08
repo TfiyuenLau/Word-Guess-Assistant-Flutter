@@ -254,7 +254,7 @@ class MiniMqttClient {
 
     content[offset++] = (clientBytes.length >> 8) & 0xff;
     content[offset++] = clientBytes.length & 0xff;
-    content.setRange(offset + 2, offset + 2 + clientBytes.length, clientBytes);
+    content.setRange(offset, offset + clientBytes.length, clientBytes);
 
     final packet = _buildPacket(0x10, content);
     _channel?.sink.add(packet);

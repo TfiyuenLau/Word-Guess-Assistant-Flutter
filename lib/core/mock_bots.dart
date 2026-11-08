@@ -105,4 +105,24 @@ class MockBots {
     }
     return actions;
   }
+
+  /// 模拟机器人白板猜词（被公投出局后触发）
+  static Map<String, String>? simulateBotBlankGuess(GameEngine engine, String botId) {
+    final bot = engine.players[botId];
+    if (bot == null || !bot.isBot || bot.role != GameRoles.blank) return null;
+
+    final random = Random();
+    // 机器人白板有 30% 概率猜中词汇逆袭，其余情况放弃或猜偏
+    if (random.nextInt(10) < 3) {
+      return {
+        'word_a': engine.wordA,
+        'word_b': engine.wordB,
+      };
+    } else {
+      return {
+        'word_a': '推测暗号A',
+        'word_b': '推测暗号B',
+      };
+    }
+  }
 }

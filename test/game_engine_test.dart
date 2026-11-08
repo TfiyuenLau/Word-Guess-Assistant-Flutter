@@ -217,5 +217,87 @@ void main() {
       final winner = engine.checkWinner();
       expect(winner, GameRoles.spy);
     });
+
+    test('胜负判定：存活特工 <= 2 且有卧底在场直接判定卧底获胜', () {
+      final engine = GameEngine();
+      for (var i = 1; i <= 4; i++) {
+        engine.addPlayer(Player(id: 'p$i', name: '特工$i', avatar: 'agent_1'));
+      }
+      engine.startGame();
+
+      final spy = engine.players.values.firstWhere((p) => p.role == GameRoles.spy);
+      final blank = engine.players.values.firstWhere((p) => p.role == GameRoles.blank);
+      final others = engine.players.values.where((p) => p.id != spy.id && p.id != blank.id);
+
+      for (final o in others) {
+        engine.players[o.id] = o.copyWith(isAlive: false);
+      }
+      // 此时仅剩 spy 和 blank 存活 (总存活 = 2)
+      final winner = engine.checkWinner();
+      expect(winner, GameRoles.spy);
+    });
+
+    test('胜负判定：好人卧底全灭，白板唯一独活判定白板胜出', () {
+      final engine = GameEngine();
+      for (var i = 1; i <= 4; i++) {
+        engine.addPlayer(Player(id: 'p$i', name: '特工$i', avatar: 'agent_1'));
+      }
+      engine.startGame();
+
+      final blank = engine.players.values.firstWhere((p) => p.role == GameRoles.blank);
+      final nonBlanks = engine.players.values.where((p) => p.id != blank.id);
+
+      for (final nb in nonBlanks) {
+        engine.players[nb.id] = nb.copyWith(isAlive: false);
+      }
+
+      final winner = engine.checkWinner();
+      expect(winner, GameRoles.blank);
+    });
+
+    test('快照脱敏安全性与断线重连身份恢复测试', () {
+      final engine = GameEngine();
+      for (var i = 1; i <= 4; i++) {
+        engine.addPlayer(Player(id: 'p$i', name: '特工$i', avatar: 'agent_1'));
+      }
+      engine.startGame();
+
+      // 1. 游戏中阶段对外广播脱敏快照测试
+      final maskedSnapshot = engine.toSnapshotMap(maskSecrets: true, forPlayerId: 'p1');
+      expect(maskedSnapshot['word_a'], isEmpty, reason: '绝密好人词必须被隐藏');
+      expect(maskedSnapshot['word_b'], isEmpty, reason: '绝密卧底词必须被隐藏');
+      expect(maskedSnapshot['hint'], isEmpty, reason: '绝密提示必须被隐藏');
+      expect(maskedSnapshot['votes'], isEmpty, reason: '秘密投票记录不可公开');
+
+      final rawPlayers = maskedSnapshot['players'] as Map<String, dynamic>;
+      // p1 自身应包含自身数据，其他玩家身份词汇必须脱敏
+      for (final entry in rawPlayers.entries) {
+        final map = entry.value as Map<String, dynamic>;
+        if (entry.key != 'p1') {
+          expect(map['word'], isNull, reason: '其他特工词汇必须为 null');
+          expect(map['hint'], isNull, reason: '其他特工提示必须为 null');
+          expect(map['role'], GameRoles.agent, reason: '好人与卧底对外显示特工盲盒');
+        }
+      }
+
+      // 2. 既有玩家断线重连身份恢复测试
+      final p2 = engine.players['p2']!;
+      final recoveredIdn = engine.getIdentityAssignment(p2.id);
+      expect(recoveredIdn, isNotNull);
+      if (p2.role == GameRoles.good) {
+        expect(recoveredIdn!.word, engine.wordA);
+      } else if (p2.role == GameRoles.spy) {
+        expect(recoveredIdn!.word, engine.wordB);
+      } else if (p2.role == GameRoles.blank) {
+        expect(recoveredIdn!.word, '【无词】');
+        expect(recoveredIdn.hint, engine.hint);
+      }
+
+      // 3. 陌生人中途加入自动转为观战者测试
+      final stranger = Player(id: 'stranger_99', name: '路人特工', avatar: 'agent_1');
+      engine.addPlayer(stranger);
+      expect(engine.players['stranger_99']!.role, GameRoles.spectator);
+      expect(engine.players['stranger_99']!.isAlive, isFalse);
+    });
   });
 }

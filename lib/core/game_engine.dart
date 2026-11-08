@@ -501,10 +501,31 @@ class GameEngine {
     }
   }
 
+  /// 获取某个玩家的个人身份与词汇信息（用于断线重连恢复身份）
+  IdentityAssignment? getIdentityAssignment(String playerId) {
+    final p = players[playerId];
+    if (p == null || p.role == null) return null;
+    switch (p.role) {
+      case GameRoles.good:
+        return IdentityAssignment(role: GameRoles.agent, word: wordA, hint: '');
+      case GameRoles.spy:
+        return IdentityAssignment(role: GameRoles.agent, word: wordB, hint: '');
+      case GameRoles.angel:
+        return IdentityAssignment(role: GameRoles.angel, word: p.word ?? '', hint: p.hint ?? '');
+      case GameRoles.blank:
+        return IdentityAssignment(role: GameRoles.blank, word: '【无词】', hint: hint);
+      case GameRoles.spectator:
+        return const IdentityAssignment(role: GameRoles.spectator, word: '', hint: '');
+      default:
+        return IdentityAssignment(role: GameRoles.agent, word: p.word ?? '', hint: '');
+    }
+  }
+
   /// 胜负判定准则：
   /// 1. 卧底阵营获胜：存活卧底数大于等于好人存活数（平民好人+天使），且卧底数 > 0；或存活特工 ≤ 2 且有卧底在场；
   /// 2. 好人阵营获胜：所有卧底全部出局，且白板必须已出局（若局内有白板）；
-  /// 3. 若白板尚存活且卧底出局，对局不可结束，必须继续！
+  /// 3. 若白板尚存活且卧底出局，好人尚未找出白板，对局不可结束，必须继续；
+  /// 4. 白板获胜：白板成功双词逆袭；或场上好人与卧底全灭，白板作为唯一存活阵营。
   String? checkWinner() {
     var aliveGood = 0;
     var aliveSpy = 0;
@@ -531,14 +552,20 @@ class GameEngine {
       }
     }
 
-    // 1. 卧底获胜：卧底存活且数量大于等于好人（平民+天使）存活数
-    if (aliveSpy > 0 && aliveSpy >= aliveGood) {
+    final totalAlive = aliveGood + aliveSpy + aliveBlank;
+
+    // 1. 卧底获胜：卧底存活且数量大于等于好人存活数；或存活特工 ≤ 2 且有卧底在场
+    if (aliveSpy > 0 && (aliveSpy >= aliveGood || totalAlive <= 2)) {
       return GameRoles.spy;
     }
 
-    // 2. 好人获胜：卧底全灭，且白板必须已淘汰
+    // 2. 好人获胜与白板独活分支
     if (aliveSpy == 0) {
       if (hasBlank && aliveBlank > 0) {
+        if (aliveGood == 0) {
+          // 好人与卧底全灭，白板唯一存活
+          return GameRoles.blank;
+        }
         return null; // 白板仍在潜伏，对局继续
       }
       return GameRoles.good;
@@ -570,18 +597,41 @@ class GameEngine {
     );
   }
 
-  /// 获取用于网络全量快照同步的数据映射
-  Map<String, dynamic> toSnapshotMap() {
+  /// 获取用于网络快照同步的数据映射（支持脱敏保护，避免网络抓包泄题）
+  Map<String, dynamic> toSnapshotMap({bool maskSecrets = false, String? forPlayerId}) {
+    final bool revealAll = phase == GamePhase.settlement || !maskSecrets;
+
+    final sanitizedPlayers = <String, dynamic>{};
+    for (final entry in players.entries) {
+      final p = entry.value;
+      if (revealAll || p.id == forPlayerId || p.role == GameRoles.spectator) {
+        sanitizedPlayers[entry.key] = p.toMap();
+      } else {
+        // 脱敏处理：隐藏其他特工真实身份与词汇，好人与卧底对外显示特工盲盒
+        sanitizedPlayers[entry.key] = {
+          'id': p.id,
+          'name': p.name,
+          'avatar': p.avatar,
+          'role': p.role != null ? GameRoles.agent : null,
+          'word': null,
+          'hint': null,
+          'is_alive': p.isAlive,
+          'is_bot': p.isBot,
+          'mark': p.mark,
+        };
+      }
+    }
+
     return {
       'phase': phase.index,
       'round': round,
-      'word_a': wordA,
-      'word_b': wordB,
-      'hint': hint,
+      'word_a': revealAll ? wordA : '',
+      'word_b': revealAll ? wordB : '',
+      'hint': revealAll ? hint : '',
       'theme': theme,
       'similarity_level': similarityLevel,
-      'players': players.map((k, v) => MapEntry(k, v.toMap())),
-      'votes': votes,
+      'players': sanitizedPlayers,
+      'votes': revealAll ? votes : {},
       'winner': winner,
       'settlement_details': settlementDetails?.toMap(),
       'last_eliminated_player_id': lastEliminatedPlayerId,

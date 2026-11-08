@@ -23,6 +23,8 @@ class WebRtcP2PTransport implements GameTransport {
   RTCPeerConnection? _hostConnection;
   RTCDataChannel? _hostChannel;
   String? _hostId;
+  String? _selfPlayerName;
+  String? _selfAvatar;
 
   final StreamController<GameMessage> _messageController =
       StreamController<GameMessage>.broadcast();
@@ -90,6 +92,8 @@ class WebRtcP2PTransport implements GameTransport {
   }) async {
     _isHost = false;
     _roomId = roomId;
+    _selfPlayerName = playerName;
+    _selfAvatar = avatar;
 
     _signaling = P2PSignaling(
       roomCode: roomId,
@@ -267,8 +271,8 @@ class WebRtcP2PTransport implements GameTransport {
           // 连接建立后主动发送 joinReq
           sendToHost(GameMessage.join(
             playerId: selfId,
-            playerName: '',
-            avatar: '',
+            playerName: _selfPlayerName ?? '特工',
+            avatar: _selfAvatar ?? 'agent_1',
           ));
         }
       } else if (state == RTCDataChannelState.RTCDataChannelClosed) {
