@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/game_models.dart';
+import '../widgets/avatar_widget.dart';
 
 class NightActionDialog extends StatefulWidget {
   final List<Player> alivePlayers;
@@ -23,108 +24,111 @@ class _NightActionDialogState extends State<NightActionDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // 排除自己
-    final candidates = widget.alivePlayers.where((p) => p.id != widget.selfId).toList();
+    final candidates =
+        widget.alivePlayers.where((p) => p.id != widget.selfId).toList();
 
     return AlertDialog(
       title: Row(
         children: [
-          Icon(Icons.nights_stay, color: theme.colorScheme.error),
+          Icon(
+            Icons.nights_stay_outlined,
+            size: 20,
+            color: theme.colorScheme.error,
+          ),
           const SizedBox(width: 8),
-          const Text('黑夜盲动暗杀'),
+          const Text('夜晚行动'),
+          const Spacer(),
+          Tooltip(
+            triggerMode: TooltipTriggerMode.tap,
+            message: '仅卧底可成功出刀，非卧底行动会自爆',
+            child: Icon(
+              Icons.info_outline,
+              size: 18,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
       content: SizedBox(
         width: double.maxFinite,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.errorContainer,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.warning, color: theme.colorScheme.onErrorContainer, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '高危提示：唯有潜伏卧底可成功刺杀！非卧底身份（好人/天使/白板）盲动将触发自爆当场殉职！',
-                      style: TextStyle(
-                        color: theme.colorScheme.onErrorContainer,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 360),
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: candidates.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 4),
+            itemBuilder: (context, index) {
+              final player = candidates[index];
+              final isSelected = _selectedTargetId == player.id;
+
+              return InkWell(
+                onTap: () {
+                  setState(() {
+                    _selectedTargetId = player.id;
+                  });
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? theme.colorScheme.errorContainer
+                            .withValues(alpha: 0.4)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isSelected
+                          ? theme.colorScheme.error
+                          : theme.colorScheme.outlineVariant
+                              .withValues(alpha: 0.5),
                     ),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '请选择您要实施行动的特工目标：',
-              style: theme.textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 8),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: candidates.length,
-                itemBuilder: (context, index) {
-                  final player = candidates[index];
-                  final isSelected = _selectedTargetId == player.id;
-
-                  return ListTile(
-                    dense: true,
-                    selected: isSelected,
-                    onTap: () {
-                      setState(() {
-                        _selectedTargetId = player.id;
-                      });
-                    },
-                    leading: Icon(
-                      isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-                      color: isSelected ? theme.colorScheme.error : null,
-                    ),
-                    title: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 14,
-                          backgroundColor: theme.colorScheme.errorContainer,
-                          child: Text(
-                            player.name.isNotEmpty ? player.name[0] : '?',
-                            style: const TextStyle(fontSize: 12),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isSelected
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_unchecked,
+                        size: 20,
+                        color: isSelected
+                            ? theme.colorScheme.error
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 10),
+                      AvatarWidget(avatar: player.avatar, size: 36),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          player.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: isSelected
+                                ? FontWeight.bold
+                                : FontWeight.w500,
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            player.name + (player.isBot ? ' [机器人]' : ''),
-                            style: TextStyle(
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
         ),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('放弃行动 (静默度过)'),
+          child: const Text('取消'),
         ),
         FilledButton(
           style: FilledButton.styleFrom(
             backgroundColor: theme.colorScheme.error,
+            foregroundColor: theme.colorScheme.onError,
           ),
           onPressed: _selectedTargetId == null
               ? null
@@ -133,7 +137,7 @@ class _NightActionDialogState extends State<NightActionDialog> {
                   Navigator.of(context).pop();
                   widget.onAction(target);
                 },
-          child: const Text('执行暗杀'),
+          child: const Text('确认'),
         ),
       ],
     );

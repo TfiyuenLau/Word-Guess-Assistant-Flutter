@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../models/game_models.dart';
 import '../../models/word_bank.dart';
@@ -10,6 +11,7 @@ class HostConsoleDialog extends StatefulWidget {
   final VoidCallback onResetGame;
   final ValueChanged<int> onAddBots;
   final VoidCallback onClearBots;
+  final ValueChanged<int>? onFillBotsTo;
 
   const HostConsoleDialog({
     super.key,
@@ -20,6 +22,7 @@ class HostConsoleDialog extends StatefulWidget {
     required this.onResetGame,
     required this.onAddBots,
     required this.onClearBots,
+    this.onFillBotsTo,
   });
 
   @override
@@ -29,19 +32,82 @@ class HostConsoleDialog extends StatefulWidget {
 class _HostConsoleDialogState extends State<HostConsoleDialog> {
   String _selectedTheme = '全部主题';
   String _selectedSimilarity = '极为接近';
+  late int _displayCount;
+
+  @override
+  void initState() {
+    super.initState();
+    _displayCount = widget.playerCount;
+  }
+
+  @override
+  void didUpdateWidget(covariant HostConsoleDialog oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.playerCount != widget.playerCount) {
+      _displayCount = widget.playerCount;
+    }
+  }
+
+  void _addBots(int count) {
+    widget.onAddBots(count);
+    setState(() {
+      _displayCount = min(12, _displayCount + count);
+    });
+  }
+
+  void _fillToEight() {
+    if (widget.onFillBotsTo != null) {
+      widget.onFillBotsTo!(8);
+    } else {
+      final needed = 8 - _displayCount;
+      if (needed > 0) {
+        widget.onAddBots(needed);
+      }
+    }
+    setState(() {
+      _displayCount = max(_displayCount, 8);
+    });
+  }
+
+  void _clearBots() {
+    widget.onClearBots();
+    setState(() {
+      _displayCount = 1;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final isPreparing = widget.currentPhase == GamePhase.preparing;
-    final canStart = isPreparing && widget.playerCount >= 4 && widget.playerCount <= 12;
+    final canStart = isPreparing && _displayCount >= 4 && _displayCount <= 12;
+    final countColor = _displayCount >= 4
+        ? (isDark ? Colors.green.shade300 : Colors.green.shade700)
+        : (isDark ? Colors.orange.shade300 : Colors.orange.shade700);
 
     return AlertDialog(
       title: Row(
         children: [
-          Icon(Icons.admin_panel_settings, color: theme.colorScheme.primary),
+          Icon(Icons.tune, size: 20, color: theme.colorScheme.primary),
           const SizedBox(width: 8),
-          const Text('房主指挥控制台'),
+          const Text('房主控制'),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: countColor.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              '$_displayCount / 12',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: countColor,
+              ),
+            ),
+          ),
         ],
       ),
       content: SingleChildScrollView(
@@ -49,40 +115,11 @@ class _HostConsoleDialogState extends State<HostConsoleDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('当前房间特工数：'),
-                  Chip(
-                    label: Text(
-                      '${widget.playerCount} / 12 人',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: widget.playerCount >= 4 ? Colors.green : Colors.orange,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
             if (isPreparing) ...[
-              Text(
-                '词库出题参数配置',
-                style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 initialValue: _selectedTheme,
                 decoration: const InputDecoration(
-                  labelText: '主题类别',
-                  border: OutlineInputBorder(),
+                  labelText: '主题',
                   isDense: true,
                 ),
                 items: WordBank.categories.map((c) {
@@ -96,8 +133,7 @@ class _HostConsoleDialogState extends State<HostConsoleDialog> {
               DropdownButtonFormField<String>(
                 initialValue: _selectedSimilarity,
                 decoration: const InputDecoration(
-                  labelText: '词义相似度',
-                  border: OutlineInputBorder(),
+                  labelText: '相似度',
                   isDense: true,
                 ),
                 items: WordBank.similarities.map((s) {
@@ -107,73 +143,117 @@ class _HostConsoleDialogState extends State<HostConsoleDialog> {
                   if (val != null) setState(() => _selectedSimilarity = val);
                 },
               ),
-              const SizedBox(height: 16),
-              Text(
-                '特工局虚拟特工（Mock Bot）',
-                style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 14),
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: widget.playerCount < 12
-                          ? () => widget.onAddBots(3)
-                          : null,
-                      icon: const Icon(Icons.smart_toy, size: 18),
-                      label: const Text('填充 3 名机器人'),
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                      ),
+                      onPressed: _displayCount < 12 ? () => _addBots(1) : null,
+                      child: const Text('+1'),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                      ),
+                      onPressed: _displayCount < 12 ? () => _addBots(3) : null,
+                      child: const Text('+3'),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    flex: 2,
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                      ),
+                      onPressed: _displayCount < 8 ? _fillToEight : null,
+                      child: const Text('补至8人'),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
                   IconButton.outlined(
-                    tooltip: '清空全部机器人',
-                    onPressed: widget.onClearBots,
+                    tooltip: '清空机器人',
+                    onPressed: _clearBots,
                     icon: const Icon(Icons.delete_outline, size: 18),
                   ),
                 ],
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(46),
+                ),
                 onPressed: canStart
                     ? () {
                         Navigator.of(context).pop();
-                        widget.onStartGame(_selectedTheme, _selectedSimilarity);
+                        widget.onStartGame(
+                          _selectedTheme,
+                          _selectedSimilarity,
+                        );
                       }
                     : null,
-                icon: const Icon(Icons.play_arrow),
+                icon: const Icon(Icons.play_arrow, size: 20),
                 label: Text(
-                  widget.playerCount < 4
-                      ? '人数不足（至少 4 人）'
-                      : widget.playerCount > 12
-                          ? '人数超限（至多 12 人）'
-                          : '启动博弈与角色发词',
+                  _displayCount < 4
+                      ? '至少需要 4 人'
+                      : _displayCount > 12
+                          ? '人数上限 12 人'
+                          : '开始游戏',
                 ),
               ),
             ] else ...[
-              Text(
-                '博弈正在进行中：${widget.currentPhase.label}',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.bold,
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer
+                      .withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      widget.currentPhase.label,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(46),
+                ),
                 onPressed: () {
                   Navigator.of(context).pop();
                   widget.onAdvancePhase();
                 },
-                icon: const Icon(Icons.skip_next),
-                label: const Text('推进至下一阶段 (NEXT)'),
+                icon: const Icon(Icons.skip_next, size: 20),
+                label: const Text('下一阶段'),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(46),
+                ),
                 onPressed: () {
                   Navigator.of(context).pop();
                   widget.onResetGame();
                 },
-                icon: const Icon(Icons.restart_alt),
-                label: const Text('重置房间并重开'),
+                icon: const Icon(Icons.restart_alt, size: 18),
+                label: const Text('重新开始'),
               ),
             ],
           ],

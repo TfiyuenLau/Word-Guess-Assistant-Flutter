@@ -14,6 +14,7 @@ class GameEngine {
 
   final Map<String, Player> players = {};
   final Map<String, String> votes = {}; // voterId -> targetId
+  final Set<String> nightActors = {}; // 本夜已行动玩家 ID
   final List<String> nightCasualties = [];
   String? winner;
   SettlementDetails? settlementDetails;
@@ -29,6 +30,7 @@ class GameEngine {
     wordB = '';
     hint = '';
     votes.clear();
+    nightActors.clear();
     nightCasualties.clear();
     winner = null;
     settlementDetails = null;
@@ -39,9 +41,10 @@ class GameEngine {
       final p = players[id]!;
       players[id] = p.copyWith(
         isAlive: true,
-        role: null,
-        word: null,
-        hint: null,
+        clearRole: true,
+        clearWord: true,
+        clearHint: true,
+        clearMark: true,
       );
     }
   }
@@ -49,16 +52,27 @@ class GameEngine {
   /// 添加或更新玩家
   void addPlayer(Player player) {
     if (players.containsKey(player.id)) {
-      // 既有玩家更新基本资料（名字/头像）
+      // 既有玩家更新基本资料（若在准备阶段同步清理旧局残留状态）
       players[player.id] = players[player.id]!.copyWith(
         name: player.name,
         avatar: player.avatar,
+        isAlive: phase == GamePhase.preparing ? true : null,
+        clearRole: phase == GamePhase.preparing,
+        clearWord: phase == GamePhase.preparing,
+        clearHint: phase == GamePhase.preparing,
+        clearMark: phase == GamePhase.preparing,
       );
       return;
     }
 
     if (phase == GamePhase.preparing) {
-      players[player.id] = player.copyWith(isAlive: true);
+      players[player.id] = player.copyWith(
+        isAlive: true,
+        clearRole: true,
+        clearWord: true,
+        clearHint: true,
+        clearMark: true,
+      );
     } else {
       // 游戏中途加入新玩家，自动转为观战者
       players[player.id] = player.copyWith(
@@ -79,6 +93,7 @@ class GameEngine {
       }
     }
     votes.remove(playerId);
+    nightActors.remove(playerId);
   }
 
   /// 角色分配算法：支持 4 ~ 12 名玩家动态身份配比
@@ -139,10 +154,10 @@ class GameEngine {
   }) {
     final playerList = players.values.where((p) => p.role != GameRoles.spectator).toList();
     if (playerList.length < 4) {
-      throw StateError('游戏人数不足，至少需要 4 名特工（当前 ${playerList.length} 人）');
+      throw StateError('人数不足，至少需要 4 名玩家（当前 ${playerList.length} 人）');
     }
     if (playerList.length > 12) {
-      throw StateError('游戏人数超限，单局最多支持 12 名特工（当前 ${playerList.length} 人）');
+      throw StateError('人数超限，单局最多支持 12 名玩家（当前 ${playerList.length} 人）');
     }
 
     reset();
@@ -180,7 +195,7 @@ class GameEngine {
           final words = random.nextBool() ? [wordA, wordB] : [wordB, wordA];
           assignmentRole = GameRoles.angel;
           displayWord = '${words[0]} / ${words[1]}';
-          displayHint = '您同时感知到两方词语，请在不暴露自身的前提下引导好人！';
+          displayHint = '两词顺序随机';
           break;
         case GameRoles.blank:
           assignmentRole = GameRoles.blank;
@@ -212,24 +227,24 @@ class GameEngine {
     return assignments;
   }
 
-  /// 提交白天公投投票
+  /// 提交白天投票
   VoteResult submitVote(String voterId, String targetId) {
     if (phase != GamePhase.voting) {
-      return VoteResult(success: false, message: '当前不是公投表决阶段');
+      return VoteResult(success: false, message: '当前不是投票阶段');
     }
 
     final voter = players[voterId];
     if (voter == null || !voter.isAlive) {
-      return VoteResult(success: false, message: '出局特工无法参与公投');
+      return VoteResult(success: false, message: '已出局玩家无法投票');
     }
 
     final target = players[targetId];
     if (target == null || !target.isAlive) {
-      return VoteResult(success: false, message: '不可投票给已出局特工');
+      return VoteResult(success: false, message: '不可投票给已出局玩家');
     }
 
     if (votes.containsKey(voterId)) {
-      return VoteResult(success: false, message: '您已提交过表决，不可重复投票');
+      return VoteResult(success: false, message: '本轮已投票，不可更改');
     }
 
     votes[voterId] = targetId;
@@ -240,11 +255,24 @@ class GameEngine {
 
     return VoteResult(
       success: true,
-      message: '投票已秘密记录',
+      message: '投票已记录',
       currentVotes: votedCount,
       totalAlive: aliveCount,
       allVoted: allVoted,
     );
+  }
+
+  String _winnerLabel(String camp) {
+    switch (camp) {
+      case GameRoles.good:
+        return '好人获胜';
+      case GameRoles.spy:
+        return '卧底获胜';
+      case GameRoles.blank:
+        return '白板获胜';
+      default:
+        return '${GameRoles.getRoleLabel(camp)}获胜';
+    }
   }
 
   /// 推进阶段（可由房主主动触发，或全员投票完成后自动流转）
@@ -255,14 +283,14 @@ class GameEngine {
         votes.clear();
         return PhaseAdvanceResult(
           phase: GamePhase.voting,
-          announcement: '【公投开启】第 $round 轮描述结束，白天表决阶段开启，请秘密投票！',
+          announcement: '第 $round 轮描述结束，投票开始。',
         );
 
       case GamePhase.voting:
         return _tallyVotesAndAdvance();
 
       case GamePhase.blankGuess:
-        // 白板超时或房主主动跳过猜词，进入黑夜
+        // 白板超时或房主主动跳过猜词，进入夜晚
         final winCheck = checkWinner();
         if (winCheck != null) {
           phase = GamePhase.settlement;
@@ -270,14 +298,16 @@ class GameEngine {
           _finishGame(winCheck);
           return PhaseAdvanceResult(
             phase: GamePhase.settlement,
-            announcement: '【终局结算】游戏结束，$winCheck 阵营获胜！',
+            announcement: '对局结束，${_winnerLabel(winCheck)}。',
             gameOver: true,
           );
         }
         phase = GamePhase.nightAction;
+        nightActors.clear();
+        nightCasualties.clear();
         return PhaseAdvanceResult(
           phase: GamePhase.nightAction,
-          announcement: '【夜幕降临】白板猜词阶段结束，黑夜行动开启，潜伏卧底请行动。',
+          announcement: '白板猜词结束，进入夜晚。',
         );
 
       case GamePhase.nightAction:
@@ -287,12 +317,12 @@ class GameEngine {
       case GamePhase.preparing:
         return PhaseAdvanceResult(
           phase: phase,
-          announcement: '当前处于 ${phase.label}。',
+          announcement: '当前处于${phase.label}。',
         );
     }
   }
 
-  /// 统计公投票数并流转
+  /// 统计投票票数并流转
   PhaseAdvanceResult _tallyVotesAndAdvance() {
     final tally = <String, int>{};
     for (final targetId in votes.values) {
@@ -314,11 +344,13 @@ class GameEngine {
     if (maxVotes == 0 || maxTargets.length > 1) {
       // 平票或无人投票，无人出局直接入夜
       phase = GamePhase.nightAction;
+      nightActors.clear();
+      nightCasualties.clear();
       return PhaseAdvanceResult(
         phase: GamePhase.nightAction,
         announcement: maxTargets.length > 1
-            ? '【公投决议】平票（最高得票 $maxVotes 票），本轮无人出局。天黑请闭眼...'
-            : '【公投决议】本轮全员弃票，无人出局。天黑请闭眼...',
+            ? '本轮投票平票（最高 $maxVotes 票），无人出局，进入夜晚。'
+            : '本轮无人投票，无人出局，进入夜晚。',
       );
     }
 
@@ -327,22 +359,24 @@ class GameEngine {
     final outPlayer = players[outId];
     if (outPlayer == null) {
       phase = GamePhase.nightAction;
-      return PhaseAdvanceResult(
+      nightActors.clear();
+      nightCasualties.clear();
+      return const PhaseAdvanceResult(
         phase: GamePhase.nightAction,
-        announcement: '【公投决议】投票无效，无人出局。天黑请闭眼...',
+        announcement: '投票无效，无人出局，进入夜晚。',
       );
     }
 
     players[outId] = outPlayer.copyWith(isAlive: false);
     lastEliminatedPlayerId = outId;
 
-    // 核心特色规则：若公投出局者为白板，立即触发白板逆袭猜词阶段！
+    // 核心特色规则：若投票出局者为白板，立即触发白板猜词阶段
     if (outPlayer.role == GameRoles.blank) {
       phase = GamePhase.blankGuess;
       return PhaseAdvanceResult(
         phase: GamePhase.blankGuess,
         eliminatedPlayerId: outId,
-        announcement: '【公投决议】特工【${outPlayer.name}】得票最高（$maxVotes 票）公投出局（身份：暗号白板）！触发白板终局逆袭猜词！',
+        announcement: '${outPlayer.name} 被投出（$maxVotes 票），身份为白板，进入白板猜词阶段。',
       );
     }
 
@@ -355,32 +389,35 @@ class GameEngine {
       return PhaseAdvanceResult(
         phase: GamePhase.settlement,
         eliminatedPlayerId: outId,
-        announcement: '【公投决议】特工【${outPlayer.name}】得票最高（$maxVotes 票）出局！对局触发胜负终局！',
+        announcement: '${outPlayer.name} 被投出（$maxVotes 票），对局结束，${_winnerLabel(winCheck)}。',
         gameOver: true,
       );
     }
 
-    // 未结束，进入黑夜
+    // 未结束，进入夜晚
     phase = GamePhase.nightAction;
+    nightActors.clear();
+    nightCasualties.clear();
     return PhaseAdvanceResult(
       phase: GamePhase.nightAction,
       eliminatedPlayerId: outId,
-      announcement: '【公投决议】特工【${outPlayer.name}】得票最高（$maxVotes 票）公投出局。天黑请闭眼...',
+      announcement: '${outPlayer.name} 被投出（$maxVotes 票），进入夜晚。',
     );
   }
 
-  /// 结算黑夜伤亡并流转至下一轮描述或终局结算
+  /// 结算夜间伤亡并流转至下一轮描述或终局结算
   PhaseAdvanceResult _settleNightAndAdvance() {
     final casualtyNames = nightCasualties
         .map((id) => players[id]?.name)
         .whereType<String>()
         .toList();
 
+    nightActors.clear();
     nightCasualties.clear();
 
     final nightReport = casualtyNames.isEmpty
-        ? '【夜间战报】昨夜是平安夜，全员平安。'
-        : '【夜间战报】天亮了，昨夜特工【${casualtyNames.join('、')}】出局。';
+        ? '天亮了，昨夜是平安夜。'
+        : '天亮了，昨夜 ${casualtyNames.join('、')} 出局。';
 
     final winCheck = checkWinner();
     if (winCheck != null) {
@@ -389,7 +426,7 @@ class GameEngine {
       _finishGame(winCheck);
       return PhaseAdvanceResult(
         phase: GamePhase.settlement,
-        announcement: '$nightReport 对局终结，$winCheck 阵营胜出！',
+        announcement: '$nightReport 对局结束，${_winnerLabel(winCheck)}。',
         gameOver: true,
       );
     }
@@ -399,64 +436,65 @@ class GameEngine {
     phase = GamePhase.description;
     return PhaseAdvanceResult(
       phase: GamePhase.description,
-      announcement: '$nightReport 第 $round 轮描述发言开始，请存活特工依次阐明观点。',
+      announcement: '$nightReport 进入第 $round 轮。',
     );
   }
 
-  /// 黑夜行动裁决
-  /// - 卧底执行暗杀：目标特工出局
-  /// - 非卧底身份误动：误触自爆，自身出局
+  /// 夜晚行动裁决
+  /// - 卧底行动：目标玩家出局
+  /// - 非卧底行动：自身出局（反馈保持中立，天亮时统一播报）
   NightActionResult submitNightAction(String actorId, String targetId) {
     if (phase != GamePhase.nightAction) {
-      return NightActionResult(success: false, feedback: '当前不是黑夜行动阶段');
+      return const NightActionResult(success: false, feedback: '当前不是夜晚阶段');
     }
 
     final actor = players[actorId];
     if (actor == null || !actor.isAlive) {
-      return NightActionResult(success: false, feedback: '已出局特工无法在黑夜行动');
+      return const NightActionResult(success: false, feedback: '已出局玩家无法在夜晚行动');
+    }
+
+    if (nightActors.contains(actorId)) {
+      return const NightActionResult(success: false, feedback: '本夜已提交行动，不可重复操作');
     }
 
     final target = players[targetId];
     if (target == null || !target.isAlive) {
-      return NightActionResult(success: false, feedback: '行动目标已出局');
+      return const NightActionResult(success: false, feedback: '目标已出局');
     }
 
+    nightActors.add(actorId);
+
     if (actor.role == GameRoles.spy) {
-      // 卧底成功刺杀
       players[targetId] = target.copyWith(isAlive: false);
       if (!nightCasualties.contains(targetId)) {
         nightCasualties.add(targetId);
       }
-      return NightActionResult(
-        success: true,
-        feedback: '夜间刺杀目标锁定完毕。',
-      );
     } else {
-      // 好人/天使/白板误动：自爆反噬
       players[actorId] = actor.copyWith(isAlive: false);
       if (!nightCasualties.contains(actorId)) {
         nightCasualties.add(actorId);
       }
-      return NightActionResult(
-        success: true,
-        feedback: '您并非潜伏卧底，黑夜盲动导致触发防暴机关，自身误伤自爆！',
-      );
     }
+
+    return const NightActionResult(
+      success: true,
+      feedback: '已记录夜间行动。',
+    );
   }
 
-  /// 白板猜词逆袭
+  /// 白板猜词
   BlankGuessResult submitBlankGuess({
     required String playerId,
     required String guessA,
     required String guessB,
   }) {
     if (phase != GamePhase.blankGuess) {
-      return BlankGuessResult(success: false, isCorrect: false, message: '当前不是白板猜词阶段');
+      return const BlankGuessResult(success: false, isCorrect: false, message: '当前不是白板猜词阶段');
     }
 
     final player = players[playerId];
     if (player == null || player.role != GameRoles.blank) {
-      return BlankGuessResult(success: false, isCorrect: false, message: '仅被公投出局的暗号白板可发起猜词');
+      return const BlankGuessResult(success: false, isCorrect: false, message: '仅被投出的白板可猜词');
     }
 
     final g1 = guessA.trim();
@@ -474,7 +512,7 @@ class GameEngine {
         success: true,
         isCorrect: true,
         gameOver: true,
-        message: '【白板绝杀】白板特工【${player.name}】精准猜中好人词【$wordA】与卧底词【$wordB】，白板阵营直接独赢！',
+        message: '白板 ${player.name} 猜中双词（$wordA、$wordB），白板获胜。',
       );
     } else {
       // 猜错，白板彻底出局，检查游戏胜负或自动流转入夜
@@ -487,15 +525,17 @@ class GameEngine {
           success: true,
           isCorrect: false,
           gameOver: true,
-          message: '【猜词未中】白板特工【${player.name}】未能命中双词，彻底出局！胜负已定！',
+          message: '白板 ${player.name} 猜词未中，对局结束，${_winnerLabel(winCheck)}。',
         );
       } else {
         phase = GamePhase.nightAction;
+        nightActors.clear();
+        nightCasualties.clear();
         return BlankGuessResult(
           success: true,
           isCorrect: false,
           gameOver: false,
-          message: '【猜词未中】白板特工【${player.name}】未能命中双词（猜测：【$g1】与【$g2】），白板出局，夜幕降临...',
+          message: '白板 ${player.name} 猜词未中（$g1、$g2），进入夜晚。',
         );
       }
     }

@@ -151,7 +151,6 @@ class LanTransport implements GameTransport {
     if (_clientSocket != null) {
       final frame = TcpFrameCodec.encode(message);
       _clientSocket!.add(frame);
-      await _clientSocket!.flush();
     }
   }
 
@@ -161,7 +160,6 @@ class LanTransport implements GameTransport {
     if (socket != null) {
       final frame = TcpFrameCodec.encode(message);
       socket.add(frame);
-      await socket.flush();
     }
   }
 
@@ -171,7 +169,6 @@ class LanTransport implements GameTransport {
     for (final socket in _peerSockets.values) {
       try {
         socket.add(frame);
-        await socket.flush();
       } catch (_) {}
     }
   }

@@ -32,57 +32,61 @@ class _BlankGuessDialogState extends State<BlankGuessDialog> {
     return AlertDialog(
       title: Row(
         children: [
-          Icon(Icons.bolt, color: theme.colorScheme.tertiary),
+          Icon(Icons.bolt, size: 20, color: theme.colorScheme.tertiary),
           const SizedBox(width: 8),
-          const Text('白板终局双词逆袭'),
+          const Text('白板猜词'),
+          const Spacer(),
+          Tooltip(
+            triggerMode: TooltipTriggerMode.tap,
+            message: '同时猜中两个词即获胜，不限顺序',
+            child: Icon(
+              Icons.info_outline,
+              size: 18,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.tertiaryContainer,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                '特权逆袭：若能同时准确猜出【好人词】与【卧底词】（顺序不限），暗号白板立即绝杀逆袭独赢！',
-                style: TextStyle(
-                  color: theme.colorScheme.onTertiaryContainer,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
             if (widget.hint != null && widget.hint!.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                '您持有的方向提示：${widget.hint}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontStyle: FontStyle.italic,
-                  color: theme.colorScheme.primary,
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.tertiaryContainer
+                      .withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '提示：${widget.hint}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: theme.colorScheme.onTertiaryContainer,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
+              const SizedBox(height: 14),
             ],
-            const SizedBox(height: 16),
             TextField(
               controller: _wordAController,
               decoration: const InputDecoration(
-                labelText: '推测词语一 (好人词或卧底词)',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.help_outline),
+                labelText: '词一',
+                isDense: true,
               ),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _wordBController,
               decoration: const InputDecoration(
-                labelText: '推测词语二 (卧底词或好人词)',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.help_outline),
+                labelText: '词二',
+                isDense: true,
               ),
             ),
           ],
@@ -94,13 +98,9 @@ class _BlankGuessDialogState extends State<BlankGuessDialog> {
             Navigator.of(context).pop();
             widget.onGuess('', '');
           },
-          child: const Text('放弃猜词 (确认出局)'),
+          child: const Text('放弃'),
         ),
         FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: theme.colorScheme.tertiary,
-            foregroundColor: theme.colorScheme.onTertiary,
-          ),
           onPressed: () {
             final w1 = _wordAController.text.trim();
             final w2 = _wordBController.text.trim();
@@ -108,7 +108,7 @@ class _BlankGuessDialogState extends State<BlankGuessDialog> {
             Navigator.of(context).pop();
             widget.onGuess(w1, w2);
           },
-          child: const Text('发起终局绝杀'),
+          child: const Text('提交'),
         ),
       ],
     );

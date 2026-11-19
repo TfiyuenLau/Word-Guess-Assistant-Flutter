@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../controllers/game_controller.dart';
 import '../../models/game_models.dart';
@@ -7,9 +8,10 @@ import '../modals/blank_guess_dialog.dart';
 import '../modals/host_console_dialog.dart';
 import '../modals/identity_card_dialog.dart';
 import '../modals/night_action_dialog.dart';
+import '../modals/phase_notice_dialog.dart';
 import '../modals/player_mark_dialog.dart';
+import '../modals/player_roster_sheet.dart';
 import '../modals/settlement_dialog.dart';
-import '../modals/theme_picker_dialog.dart';
 import '../modals/vote_dialog.dart';
 import '../widgets/avatar_widget.dart';
 
@@ -24,6 +26,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> {
   final _chatInputController = TextEditingController();
   final _scrollController = ScrollController();
   bool _settlementShown = false;
+  int _lastShownNoticeSeq = 0;
 
   @override
   void dispose() {
@@ -37,11 +40,177 @@ class _RoomScreenState extends ConsumerState<RoomScreen> {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
+          duration: const Duration(milliseconds: 250),
           curve: Curves.easeOut,
         );
       }
     });
+  }
+
+  void _sendMessage() {
+    final text = _chatInputController.text;
+    if (text.trim().isEmpty) return;
+    ref.read(gameControllerProvider.notifier).sendChatMessage(text);
+    _chatInputController.clear();
+  }
+
+  void _confirmLeave(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('离开房间'),
+        content: const Text('确定要退出当前房间吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              ref.read(gameControllerProvider.notifier).leaveRoom();
+              Navigator.of(context).pop();
+            },
+            child: const Text('离开'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openPlayerMarkDialog(Player player, String? currentMark) {
+    showDialog(
+      context: context,
+      builder: (_) => PlayerMarkDialog(
+        player: player,
+        currentMark: currentMark,
+        onMarkSelected: (roleMark) {
+          ref.read(gameControllerProvider.notifier).markPlayer(player.id, roleMark);
+        },
+      ),
+    );
+  }
+
+  void _openPlayerRoster(RoomState roomState) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetCtx) => PlayerRosterSheet(
+        players: roomState.players,
+        selfPlayerId: roomState.selfPlayer.id,
+        playerMarks: roomState.playerMarks,
+        onTapPlayer: (player) {
+          if (player.id == roomState.selfPlayer.id) return;
+          Navigator.of(sheetCtx).pop();
+          _openPlayerMarkDialog(player, roomState.playerMarks[player.id]);
+        },
+      ),
+    );
+  }
+
+  void _openHostConsole() {
+    showDialog(
+      context: context,
+      builder: (_) => Consumer(
+        builder: (ctx, dialogRef, _) {
+          final liveState = dialogRef.watch(gameControllerProvider);
+          return HostConsoleDialog(
+            playerCount: liveState.players.length,
+            currentPhase: liveState.currentPhase,
+            onStartGame: (th, sim) {
+              dialogRef
+                  .read(gameControllerProvider.notifier)
+                  .startGame(theme: th, similarity: sim);
+            },
+            onAdvancePhase: () {
+              dialogRef.read(gameControllerProvider.notifier).advancePhase();
+            },
+            onResetGame: () {
+              dialogRef.read(gameControllerProvider.notifier).resetGame();
+            },
+            onAddBots: (count) {
+              dialogRef.read(gameControllerProvider.notifier).addMockBots(count);
+            },
+            onClearBots: () {
+              dialogRef.read(gameControllerProvider.notifier).clearMockBots();
+            },
+            onFillBotsTo: (target) {
+              dialogRef
+                  .read(gameControllerProvider.notifier)
+                  .fillBotsToCount(target);
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  void _copyRoomId(String roomId) {
+    if (roomId.isEmpty) return;
+    Clipboard.setData(ClipboardData(text: roomId));
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('已复制房间号 $roomId'),
+          duration: const Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  String _phasePillText(GamePhase phase, int round) {
+    switch (phase) {
+      case GamePhase.preparing:
+        return '准备中';
+      case GamePhase.description:
+        return '描述 · R$round';
+      case GamePhase.voting:
+        return '投票 · R$round';
+      case GamePhase.nightAction:
+        return '夜晚 · R$round';
+      case GamePhase.blankGuess:
+        return '白板猜词';
+      case GamePhase.settlement:
+        return '结算';
+    }
+  }
+
+  (Color, Color) _phasePillColors(ThemeData theme, GamePhase phase) {
+    final isDark = theme.brightness == Brightness.dark;
+    switch (phase) {
+      case GamePhase.preparing:
+        return (
+          theme.colorScheme.surfaceContainerHighest,
+          theme.colorScheme.onSurfaceVariant,
+        );
+      case GamePhase.description:
+        return (
+          theme.colorScheme.primaryContainer,
+          theme.colorScheme.onPrimaryContainer,
+        );
+      case GamePhase.voting:
+        return (
+          Colors.orange.withValues(alpha: 0.18),
+          isDark ? Colors.orange.shade300 : Colors.orange.shade800,
+        );
+      case GamePhase.nightAction:
+        return (
+          Colors.deepPurple.withValues(alpha: 0.22),
+          isDark ? Colors.deepPurple.shade200 : Colors.deepPurple.shade700,
+        );
+      case GamePhase.blankGuess:
+        return (
+          theme.colorScheme.tertiaryContainer,
+          theme.colorScheme.onTertiaryContainer,
+        );
+      case GamePhase.settlement:
+        return (
+          Colors.green.withValues(alpha: 0.18),
+          isDark ? Colors.green.shade300 : Colors.green.shade700,
+        );
+    }
   }
 
   @override
@@ -49,8 +218,23 @@ class _RoomScreenState extends ConsumerState<RoomScreen> {
     final roomState = ref.watch(gameControllerProvider);
     final theme = Theme.of(context);
 
-    // 监听结算弹窗自动弹出
-    ref.listen(gameControllerProvider, (prev, next) {
+    ref.listen<RoomState>(gameControllerProvider, (prev, next) {
+      final prevNoticeSeq = prev?.phaseNoticeSeq ?? 0;
+      if (next.phaseNoticeSeq > prevNoticeSeq &&
+          next.phaseNoticeTitle != null &&
+          next.currentPhase != GamePhase.settlement &&
+          next.phaseNoticeSeq != _lastShownNoticeSeq) {
+        _lastShownNoticeSeq = next.phaseNoticeSeq;
+        showDialog(
+          context: context,
+          builder: (_) => PhaseNoticeDialog(
+            title: next.phaseNoticeTitle!,
+            message: next.phaseNoticeBody ?? '',
+            phase: next.currentPhase,
+          ),
+        );
+      }
+
       if (next.currentPhase == GamePhase.settlement &&
           next.settlementDetails != null &&
           !_settlementShown) {
@@ -65,567 +249,448 @@ class _RoomScreenState extends ConsumerState<RoomScreen> {
       } else if (next.currentPhase != GamePhase.settlement) {
         _settlementShown = false;
       }
-      _scrollToBottom();
+
+      if (next.chatMessages.length != prev?.chatMessages.length ||
+          next.currentPhase != prev?.currentPhase ||
+          next.currentRound != prev?.currentRound) {
+        _scrollToBottom();
+      }
     });
 
-    final isAlive = roomState.selfPlayer.isAlive;
-    final isVoting = roomState.currentPhase == GamePhase.voting;
-    final isNight = roomState.currentPhase == GamePhase.nightAction;
-    final isBlankGuess = roomState.currentPhase == GamePhase.blankGuess;
+    final (pillBg, pillFg) = _phasePillColors(theme, roomState.currentPhase);
 
     return Scaffold(
       appBar: AppBar(
+        leadingWidth: 44,
+        titleSpacing: 4,
+        leading: IconButton(
+          tooltip: '离开房间',
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => _confirmLeave(context),
+        ),
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text('房间 ${roomState.roomId}'),
-            const SizedBox(width: 8),
-            Chip(
-              label: Text(
-                roomState.networkMode.toUpperCase(),
-                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: pillBg,
+                borderRadius: BorderRadius.circular(12),
               ),
-              padding: EdgeInsets.zero,
+              child: Text(
+                _phasePillText(roomState.currentPhase, roomState.currentRound),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: pillFg,
+                ),
+              ),
             ),
-            if (roomState.isHost) ...[
+            if (roomState.roomId.isNotEmpty) ...[
               const SizedBox(width: 6),
-              const Chip(
-                avatar: Icon(Icons.star, size: 14, color: Colors.amber),
-                label: Text('房主', style: TextStyle(fontSize: 10)),
-                padding: EdgeInsets.zero,
+              Flexible(
+                child: InkWell(
+                  onTap: () => _copyRoomId(roomState.roomId),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                    child: Text(
+                      '#${roomState.roomId}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ],
           ],
         ),
         actions: [
-          IconButton(
-            tooltip: '终端主题风格',
-            icon: const Icon(Icons.palette_outlined),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (_) => const ThemePickerDialog(),
-              );
-            },
-          ),
-          IconButton(
-            tooltip: '撤出房间',
-            icon: const Icon(Icons.exit_to_app),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('确认撤出？'),
-                  content: const Text('离开后将断开与房间各特工的加密连接。'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      child: const Text('取消'),
+          Tooltip(
+            message: '玩家列表',
+            child: InkWell(
+              onTap: () => _openPlayerRoster(roomState),
+              borderRadius: BorderRadius.circular(18),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.group_outlined,
+                      size: 19,
+                      color: theme.colorScheme.onSurface,
                     ),
-                    FilledButton(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        ref.read(gameControllerProvider.notifier).leaveRoom();
-                        Navigator.of(context).pop();
-                      },
-                      child: const Text('确认离开'),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${roomState.players.length}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: theme.colorScheme.onSurface,
+                      ),
                     ),
                   ],
                 ),
-              );
-            },
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          Padding(
+            padding: const EdgeInsets.only(right: 10),
+            child: FilledButton.tonalIcon(
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                minimumSize: const Size(0, 34),
+              ),
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (_) => IdentityCardDialog(
+                    identity: roomState.myIdentity,
+                  ),
+                );
+              },
+              icon: const Icon(Icons.badge_outlined, size: 16),
+              label: const Text(
+                '身份',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
           ),
         ],
       ),
       body: Column(
         children: [
-          // 阶段状态横幅
-          _PhaseBanner(
-            phase: roomState.currentPhase,
-            round: roomState.currentRound,
-            info: roomState.phaseExtraInfo,
-          ),
-
-          // 核心对局区域：特工网格 + 聊天公屏
           Expanded(
-            child: Column(
+            child: Stack(
               children: [
-                // 特工阵列（可滚动横向或网格）
-                Container(
-                  constraints: const BoxConstraints(maxHeight: 180),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                  child: GridView.builder(
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 4,
-                      mainAxisSpacing: 6,
-                      crossAxisSpacing: 6,
-                      childAspectRatio: 0.82,
-                    ),
-                    itemCount: roomState.players.length,
-                    itemBuilder: (context, index) {
-                      final p = roomState.players[index];
-                      final mark = roomState.playerMarks[p.id];
-                      final isMe = p.id == roomState.selfPlayer.id;
-
-                      return _PlayerCard(
-                        player: p,
-                        isMe: isMe,
-                        mark: mark,
-                        onTap: () {
-                          showDialog(
-                            context: context,
-                            builder: (_) => PlayerMarkDialog(
-                              player: p,
-                              currentMark: mark,
-                              onMarkSelected: (roleMark) {
-                                ref
-                                    .read(gameControllerProvider.notifier)
-                                    .markPlayer(p.id, roleMark);
-                              },
-                            ),
-                          );
-                        },
-                      );
-                    },
+                ListView.builder(
+                  controller: _scrollController,
+                  padding: EdgeInsets.only(
+                    left: 12,
+                    right: 12,
+                    top: 10,
+                    bottom: roomState.isHost ? 84 : 12,
                   ),
-                ),
-
-                const Divider(height: 1),
-
-                // 消息公屏
-                Expanded(
-                  child: ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    itemCount: roomState.chatMessages.length,
-                    itemBuilder: (context, index) {
-                      final msg = roomState.chatMessages[index];
-                      return _ChatMessageItem(
-                        message: msg,
-                        players: roomState.players,
-                        selfPlayerId: roomState.selfPlayer.id,
-                      );
-                    },
-                  ),
-                ),
-
-                // 底部输入框
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _chatInputController,
-                          decoration: const InputDecoration(
-                            hintText: '发送特工发言或线索...',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
-                          onSubmitted: (val) {
-                            if (val.trim().isNotEmpty) {
-                              ref
-                                  .read(gameControllerProvider.notifier)
-                                  .sendChatMessage(val);
-                              _chatInputController.clear();
-                            }
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton.filled(
-                        icon: const Icon(Icons.send),
-                        onPressed: () {
-                          final text = _chatInputController.text;
-                          if (text.trim().isNotEmpty) {
-                            ref
-                                .read(gameControllerProvider.notifier)
-                                .sendChatMessage(text);
-                            _chatInputController.clear();
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // 底部行动动作栏
-          SafeArea(
-            top: false,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
-                border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant)),
-              ),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    FilledButton.icon(
-                      onPressed: () {
-                        showDialog(
-                          context: context,
-                          builder: (_) => IdentityCardDialog(
-                            identity: roomState.myIdentity,
-                          ),
+                  itemCount: roomState.chatMessages.length,
+                  itemBuilder: (context, index) {
+                    final msg = roomState.chatMessages[index];
+                    return _ChatMessageItem(
+                      message: msg,
+                      players: roomState.players,
+                      selfPlayer: roomState.selfPlayer,
+                      playerMarks: roomState.playerMarks,
+                      onTapPlayerAvatar: (target) {
+                        _openPlayerMarkDialog(
+                          target,
+                          roomState.playerMarks[target.id],
                         );
                       },
-                      icon: const Icon(Icons.lock_person),
-                      label: const Text('我的身份'),
-                    ),
-                    const SizedBox(width: 8),
-
-                    if (isVoting) ...[
-                      FilledButton.tonalIcon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: theme.colorScheme.primaryContainer,
-                        ),
-                        onPressed: isAlive
-                            ? () {
-                                final alivePlayers = roomState.players
-                                    .where((p) => p.isAlive)
-                                    .toList();
-                                showDialog(
-                                  context: context,
-                                  builder: (_) => VoteDialog(
-                                    alivePlayers: alivePlayers,
-                                    selfId: roomState.selfPlayer.id,
-                                    onVote: (targetId) {
-                                      ref
-                                          .read(gameControllerProvider.notifier)
-                                          .submitVote(targetId);
-                                    },
-                                  ),
-                                );
-                              }
-                            : null,
-                        icon: const Icon(Icons.how_to_vote),
-                        label: const Text('公投表决'),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-
-                    if (isNight) ...[
-                      FilledButton.tonalIcon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: theme.colorScheme.errorContainer,
-                          foregroundColor: theme.colorScheme.onErrorContainer,
-                        ),
-                        onPressed: isAlive
-                            ? () {
-                                final alivePlayers = roomState.players
-                                    .where((p) => p.isAlive)
-                                    .toList();
-                                showDialog(
-                                  context: context,
-                                  builder: (_) => NightActionDialog(
-                                    alivePlayers: alivePlayers,
-                                    selfId: roomState.selfPlayer.id,
-                                    onAction: (targetId) {
-                                      ref
-                                          .read(gameControllerProvider.notifier)
-                                          .submitNightAction(targetId);
-                                    },
-                                  ),
-                                );
-                              }
-                            : null,
-                        icon: const Icon(Icons.nights_stay),
-                        label: const Text('黑夜行动'),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-
-                    if (isBlankGuess) ...[
-                      if (roomState.myIdentity?.role == GameRoles.blank)
-                        FilledButton.tonalIcon(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: theme.colorScheme.tertiaryContainer,
-                            foregroundColor: theme.colorScheme.onTertiaryContainer,
-                          ),
-                          onPressed: () {
-                            showDialog(
-                              context: context,
-                              builder: (_) => BlankGuessDialog(
-                                hint: roomState.myIdentity?.hint,
-                                onGuess: (wA, wB) {
-                                  ref
-                                      .read(gameControllerProvider.notifier)
-                                      .submitBlankGuess(wA, wB);
-                                },
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.bolt),
-                          label: const Text('白板逆袭'),
-                        )
-                      else
-                        OutlinedButton.icon(
-                          onPressed: null,
-                          icon: const Icon(Icons.hourglass_top),
-                          label: const Text('等待白板逆袭猜词...'),
-                        ),
-                      const SizedBox(width: 8),
-                    ],
-
-                    if (roomState.settlementDetails != null) ...[
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: Colors.amber.shade700,
-                        ),
-                        onPressed: () {
-                          showDialog(
-                            context: context,
-                            builder: (_) => SettlementDialog(
-                              details: roomState.settlementDetails!,
-                              onDismiss: () {},
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.emoji_events),
-                        label: const Text('查看战报'),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-
-                    if (roomState.isHost) ...[
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          showDialog(
-                            context: context,
-                            builder: (_) => HostConsoleDialog(
-                              playerCount: roomState.players.length,
-                              currentPhase: roomState.currentPhase,
-                              onStartGame: (th, sim) {
-                                ref
-                                    .read(gameControllerProvider.notifier)
-                                    .startGame(theme: th, similarity: sim);
-                              },
-                              onAdvancePhase: () {
-                                ref
-                                    .read(gameControllerProvider.notifier)
-                                    .advancePhase();
-                              },
-                              onResetGame: () {
-                                ref
-                                    .read(gameControllerProvider.notifier)
-                                    .resetGame();
-                              },
-                              onAddBots: (count) {
-                                ref
-                                    .read(gameControllerProvider.notifier)
-                                    .addMockBots(count);
-                              },
-                              onClearBots: () {
-                                ref
-                                    .read(gameControllerProvider.notifier)
-                                    .clearMockBots();
-                              },
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.admin_panel_settings),
-                        label: const Text('房主控制台'),
-                      ),
-                    ],
-                  ],
+                    );
+                  },
                 ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PhaseBanner extends StatelessWidget {
-  final GamePhase phase;
-  final int round;
-  final String info;
-
-  const _PhaseBanner({
-    required this.phase,
-    required this.round,
-    required this.info,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    Color bg;
-    Color fg;
-
-    switch (phase) {
-      case GamePhase.description:
-        bg = theme.colorScheme.primaryContainer;
-        fg = theme.colorScheme.onPrimaryContainer;
-        break;
-      case GamePhase.voting:
-        bg = Colors.orange.shade100;
-        fg = Colors.orange.shade900;
-        break;
-      case GamePhase.nightAction:
-        bg = Colors.deepPurple.shade900;
-        fg = Colors.white;
-        break;
-      case GamePhase.blankGuess:
-        bg = Colors.amber.shade100;
-        fg = Colors.amber.shade900;
-        break;
-      case GamePhase.settlement:
-        bg = Colors.green.shade100;
-        fg = Colors.green.shade900;
-        break;
-      default:
-        bg = theme.colorScheme.surfaceContainerHighest;
-        fg = theme.colorScheme.onSurfaceVariant;
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      color: bg,
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: fg.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              '${phase.label} · 第 $round 轮',
-              style: TextStyle(
-                color: fg,
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              info,
-              style: TextStyle(
-                color: fg,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PlayerCard extends StatelessWidget {
-  final Player player;
-  final bool isMe;
-  final String? mark;
-  final VoidCallback onTap;
-
-  const _PlayerCard({
-    required this.player,
-    required this.isMe,
-    this.mark,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isAlive = player.isAlive;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-        decoration: BoxDecoration(
-          color: isMe
-              ? theme.colorScheme.primary.withValues(alpha: 0.12)
-              : theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isMe
-                ? theme.colorScheme.primary
-                : isAlive
-                    ? theme.colorScheme.outlineVariant
-                    : Colors.red.shade400,
-            width: isMe ? 2 : 1,
-          ),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Opacity(
-                  opacity: isAlive ? 1.0 : 0.4,
-                  child: AvatarWidget(
-                    avatar: player.avatar,
-                    size: 34,
-                    showBorder: isMe,
-                    borderColor: theme.colorScheme.primary,
-                  ),
-                ),
-                if (!isAlive)
-                  const Positioned(
-                    bottom: -2,
-                    right: -2,
-                    child: Icon(Icons.cancel, color: Colors.red, size: 14),
-                  ),
-                if (player.isBot)
+                if (roomState.isHost)
                   Positioned(
-                    top: -3,
-                    right: -3,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade700,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.smart_toy, color: Colors.white, size: 9),
+                    right: 16,
+                    bottom: 16,
+                    child: FloatingActionButton(
+                      heroTag: 'room_host_fab',
+                      tooltip: '房主控制',
+                      onPressed: _openHostConsole,
+                      child: const Icon(Icons.tune),
                     ),
                   ),
               ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              player.name + (isMe ? ' (我)' : ''),
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: isMe ? FontWeight.bold : FontWeight.w500,
-                color: isAlive ? theme.colorScheme.onSurface : theme.colorScheme.outline,
-                decoration: isAlive ? null : TextDecoration.lineThrough,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+          ),
+          SafeArea(
+            top: false,
+            child: _BottomActionBar(
+              roomState: roomState,
+              chatInputController: _chatInputController,
+              onSendChat: _sendMessage,
+              onOpenVote: () {
+                final alivePlayers =
+                    roomState.players.where((p) => p.isAlive).toList();
+                showDialog(
+                  context: context,
+                  builder: (_) => VoteDialog(
+                    alivePlayers: alivePlayers,
+                    selfId: roomState.selfPlayer.id,
+                    onVote: (targetId) {
+                      ref
+                          .read(gameControllerProvider.notifier)
+                          .submitVote(targetId);
+                    },
+                  ),
+                );
+              },
+              onOpenNightAction: () {
+                final alivePlayers =
+                    roomState.players.where((p) => p.isAlive).toList();
+                showDialog(
+                  context: context,
+                  builder: (_) => NightActionDialog(
+                    alivePlayers: alivePlayers,
+                    selfId: roomState.selfPlayer.id,
+                    onAction: (targetId) {
+                      ref
+                          .read(gameControllerProvider.notifier)
+                          .submitNightAction(targetId);
+                    },
+                  ),
+                );
+              },
+              onOpenBlankGuess: () {
+                showDialog(
+                  context: context,
+                  builder: (_) => BlankGuessDialog(
+                    hint: roomState.myIdentity?.hint,
+                    onGuess: (wA, wB) {
+                      ref
+                          .read(gameControllerProvider.notifier)
+                          .submitBlankGuess(wA, wB);
+                    },
+                  ),
+                );
+              },
+              onOpenSettlement: () {
+                if (roomState.settlementDetails == null) return;
+                showDialog(
+                  context: context,
+                  builder: (_) => SettlementDialog(
+                    details: roomState.settlementDetails!,
+                    onDismiss: () {},
+                  ),
+                );
+              },
             ),
-            if (mark != null)
-              Container(
-                margin: const EdgeInsets.only(top: 2),
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: BoxDecoration(
-                  color: Colors.amber.shade200,
-                  borderRadius: BorderRadius.circular(4),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BottomActionBar extends StatelessWidget {
+  final RoomState roomState;
+  final TextEditingController chatInputController;
+  final VoidCallback onSendChat;
+  final VoidCallback onOpenVote;
+  final VoidCallback onOpenNightAction;
+  final VoidCallback onOpenBlankGuess;
+  final VoidCallback onOpenSettlement;
+
+  const _BottomActionBar({
+    required this.roomState,
+    required this.chatInputController,
+    required this.onSendChat,
+    required this.onOpenVote,
+    required this.onOpenNightAction,
+    required this.onOpenBlankGuess,
+    required this.onOpenSettlement,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(
+          top: BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
+          ),
+        ),
+      ),
+      child: _buildContent(context, theme),
+    );
+  }
+
+  Widget _buildContent(BuildContext context, ThemeData theme) {
+    if (roomState.canSendChat) {
+      final hint = roomState.currentPhase == GamePhase.description
+          ? '描述你的词语...'
+          : '输入发言...';
+      return Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: chatInputController,
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => onSendChat(),
+              decoration: InputDecoration(
+                hintText: hint,
+                filled: true,
+                fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 11,
                 ),
-                child: Text(
-                  GameRoles.getRoleLabel(mark),
-                  style: TextStyle(fontSize: 8, color: Colors.amber.shade900, fontWeight: FontWeight.bold),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(22),
+                  borderSide: BorderSide.none,
                 ),
               ),
-          ],
-        ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton.filled(
+            tooltip: '发送',
+            onPressed: onSendChat,
+            icon: const Icon(Icons.send_rounded, size: 20),
+          ),
+        ],
+      );
+    }
+
+    switch (roomState.currentPhase) {
+      case GamePhase.voting:
+        if (roomState.canVote) {
+          return SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: FilledButton.icon(
+              onPressed: onOpenVote,
+              icon: const Icon(Icons.how_to_vote_outlined),
+              label: const Text('投票'),
+            ),
+          );
+        }
+        if (roomState.hasVotedThisRound) {
+          return _MutedStatusPill(
+            icon: Icons.check_circle_outline,
+            label: '已投票',
+          );
+        }
+        return _MutedStatusPill(
+          icon: Icons.block,
+          label: roomState.isSpectator ? '观战中' : '已出局',
+        );
+
+      case GamePhase.nightAction:
+        if (roomState.canNightAct) {
+          return SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.error,
+                foregroundColor: theme.colorScheme.onError,
+              ),
+              onPressed: onOpenNightAction,
+              icon: const Icon(Icons.nights_stay_outlined),
+              label: const Text('夜间行动'),
+            ),
+          );
+        }
+        if (roomState.hasNightActedThisRound) {
+          return const _MutedStatusPill(
+            icon: Icons.check_circle_outline,
+            label: '已行动',
+          );
+        }
+        return _MutedStatusPill(
+          icon: Icons.block,
+          label: roomState.isSpectator ? '观战中' : '已出局',
+        );
+
+      case GamePhase.blankGuess:
+        if (roomState.canBlankGuess) {
+          return SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.tertiary,
+                foregroundColor: theme.colorScheme.onTertiary,
+              ),
+              onPressed: onOpenBlankGuess,
+              icon: const Icon(Icons.bolt_outlined),
+              label: const Text('白板猜词'),
+            ),
+          );
+        }
+        return const _MutedStatusPill(
+          icon: Icons.hourglass_empty,
+          label: '等待白板猜词',
+        );
+
+      case GamePhase.settlement:
+        return SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: FilledButton.icon(
+            onPressed: roomState.settlementDetails != null ? onOpenSettlement : null,
+            icon: const Icon(Icons.emoji_events_outlined),
+            label: const Text('查看结算'),
+          ),
+        );
+
+      case GamePhase.description:
+        if (roomState.currentRound >= 2) {
+          return _MutedStatusPill(
+            icon: Icons.forum_outlined,
+            label: '第 ${roomState.currentRound} 轮讨论中',
+          );
+        }
+        return _MutedStatusPill(
+          icon: Icons.block,
+          label: roomState.isSpectator ? '观战中' : '已出局',
+        );
+
+      case GamePhase.preparing:
+        return _MutedStatusPill(
+          icon: Icons.visibility_outlined,
+          label: roomState.isSpectator ? '观战中' : '等待开始',
+        );
+    }
+  }
+}
+
+class _MutedStatusPill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _MutedStatusPill({
+    required this.icon,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      height: 44,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.65),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 17, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -634,12 +699,16 @@ class _PlayerCard extends StatelessWidget {
 class _ChatMessageItem extends StatelessWidget {
   final GameMessage message;
   final List<Player> players;
-  final String selfPlayerId;
+  final Player selfPlayer;
+  final Map<String, String> playerMarks;
+  final ValueChanged<Player> onTapPlayerAvatar;
 
   const _ChatMessageItem({
     required this.message,
     required this.players,
-    required this.selfPlayerId,
+    required this.selfPlayer,
+    required this.playerMarks,
+    required this.onTapPlayerAvatar,
   });
 
   @override
@@ -651,39 +720,29 @@ class _ChatMessageItem extends StatelessWidget {
     final text = payload['text']?.toString() ?? '';
 
     if (isSystem) {
-      return Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.75),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.campaign,
-              color: theme.colorScheme.primary,
-              size: 16,
+      return Center(
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          constraints: const BoxConstraints(maxWidth: 320),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.65),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.colorScheme.onSurfaceVariant,
+              height: 1.35,
             ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                text,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: theme.colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       );
     }
 
-    final isMe = senderId == selfPlayerId;
+    final isMe = senderId == selfPlayer.id;
     Player? sender;
     for (final p in players) {
       if (p.id == senderId) {
@@ -691,62 +750,212 @@ class _ChatMessageItem extends StatelessWidget {
         break;
       }
     }
-    final senderName = sender?.name ?? senderId;
-    final senderAvatar = sender?.avatar ?? '';
+
+    final senderName = sender?.name ?? payload['sender_name']?.toString() ?? senderId;
+    final senderAvatar = sender?.avatar ?? (isMe ? selfPlayer.avatar : '');
+    final isOut = sender != null ? !sender.isAlive : (isMe && !selfPlayer.isAlive);
+    final mark = isMe ? null : playerMarks[senderId];
+
+    if (isMe) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Flexible(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
+                    bottomLeft: Radius.circular(16),
+                    bottomRight: Radius.circular(4),
+                  ),
+                ),
+                child: Text(
+                  text,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: theme.colorScheme.onPrimary,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            AvatarWidget(
+              avatar: senderAvatar,
+              size: 38,
+              isOut: isOut,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final targetPlayer = sender ??
+        Player(
+          id: senderId,
+          name: senderName,
+          avatar: senderAvatar,
+          isAlive: !isOut,
+        );
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
-        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!isMe) ...[
-            AvatarWidget(avatar: senderAvatar, size: 28),
-            const SizedBox(width: 8),
-          ],
+          Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              onTap: () => onTapPlayerAvatar(targetPlayer),
+              borderRadius: BorderRadius.circular(20),
+              child: AvatarWidget(
+                avatar: senderAvatar,
+                size: 38,
+                isOut: isOut,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
           Flexible(
             child: Column(
-              crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (!isMe)
-                  Text(
-                    senderName,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.primary,
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        senderName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: isOut
+                              ? theme.colorScheme.onSurfaceVariant
+                              : theme.colorScheme.primary,
+                        ),
+                      ),
                     ),
-                  ),
-                const SizedBox(height: 2),
+                    if (mark != null && mark.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      _GuessMarkChip(role: mark),
+                    ],
+                    if (isOut) ...[
+                      const SizedBox(width: 6),
+                      const _OutHeaderPill(),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 3),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
                   decoration: BoxDecoration(
-                    color: isMe
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(12),
-                      topRight: const Radius.circular(12),
-                      bottomLeft: Radius.circular(isMe ? 12 : 2),
-                      bottomRight: Radius.circular(isMe ? 2 : 12),
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(4),
+                      topRight: Radius.circular(16),
+                      bottomLeft: Radius.circular(16),
+                      bottomRight: Radius.circular(16),
                     ),
                   ),
                   child: Text(
                     text,
                     style: TextStyle(
-                      fontSize: 13,
-                      color: isMe ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface,
+                      fontSize: 14,
+                      color: isOut
+                          ? theme.colorScheme.onSurfaceVariant
+                          : theme.colorScheme.onSurface,
+                      height: 1.35,
                     ),
                   ),
                 ),
               ],
             ),
           ),
-          if (isMe) ...[
-            const SizedBox(width: 8),
-            AvatarWidget(avatar: senderAvatar, size: 28),
-          ],
         ],
+      ),
+    );
+  }
+}
+
+class _GuessMarkChip extends StatelessWidget {
+  final String role;
+
+  const _GuessMarkChip({required this.role});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final (bg, fg) = switch (role) {
+      GameRoles.good => (
+          Colors.blue.withValues(alpha: 0.16),
+          isDark ? Colors.blue.shade300 : Colors.blue.shade700,
+        ),
+      GameRoles.spy => (
+          Colors.red.withValues(alpha: 0.16),
+          isDark ? Colors.red.shade300 : Colors.red.shade700,
+        ),
+      GameRoles.angel => (
+          Colors.amber.withValues(alpha: 0.2),
+          isDark ? Colors.amber.shade300 : Colors.amber.shade800,
+        ),
+      GameRoles.blank => (
+          Colors.purple.withValues(alpha: 0.16),
+          isDark ? Colors.purple.shade300 : Colors.purple.shade700,
+        ),
+      _ => (
+          Colors.grey.withValues(alpha: 0.16),
+          isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+        ),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        GameRoles.getRoleLabel(role),
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: fg,
+          height: 1.1,
+        ),
+      ),
+    );
+  }
+}
+
+class _OutHeaderPill extends StatelessWidget {
+  const _OutHeaderPill();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+      decoration: BoxDecoration(
+        color: Colors.red.shade700,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: const Text(
+        'OUT',
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          color: Colors.white,
+          height: 1.1,
+          letterSpacing: 0.3,
+        ),
       ),
     );
   }

@@ -13,40 +13,39 @@ class ThemePickerDialog extends ConsumerWidget {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 440, maxHeight: 580),
+        constraints: const BoxConstraints(maxWidth: 380),
         child: Padding(
-          padding: const EdgeInsets.all(20.0),
+          padding: const EdgeInsets.fromLTRB(20, 16, 16, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
                 children: [
-                  Icon(Icons.palette_outlined, color: theme.colorScheme.primary),
-                  const SizedBox(width: 10),
+                  Icon(
+                    Icons.palette_outlined,
+                    size: 20,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
                   Text(
-                    '作战终端主题',
+                    '主题',
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const Spacer(),
                   IconButton(
-                    icon: const Icon(Icons.close),
+                    icon: const Icon(Icons.close, size: 20),
+                    visualDensity: VisualDensity.compact,
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                '挑选最适合您现场博弈氛围的视觉风格',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Expanded(
+              const SizedBox(height: 12),
+              Flexible(
                 child: ListView.separated(
+                  shrinkWrap: true,
                   itemCount: kThemeOptions.length,
                   separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
@@ -59,17 +58,19 @@ class ThemePickerDialog extends ConsumerWidget {
                             .read(themeControllerProvider.notifier)
                             .setTheme(opt.type);
                       },
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(12),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 12),
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
                         decoration: BoxDecoration(
                           color: isSelected
                               ? theme.colorScheme.primaryContainer
                                   .withValues(alpha: 0.35)
                               : theme.colorScheme.surfaceContainerHighest
-                                  .withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(14),
+                                  .withValues(alpha: 0.25),
+                          borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: isSelected
                                 ? theme.colorScheme.primary
@@ -79,10 +80,9 @@ class ThemePickerDialog extends ConsumerWidget {
                         ),
                         child: Row(
                           children: [
-                            // 主题主色与底色圆形色块指示器
                             Container(
-                              width: 32,
-                              height: 32,
+                              width: 28,
+                              height: 28,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 color: opt.backgroundColor,
@@ -93,8 +93,8 @@ class ThemePickerDialog extends ConsumerWidget {
                               ),
                               child: Center(
                                 child: Container(
-                                  width: 12,
-                                  height: 12,
+                                  width: 10,
+                                  height: 10,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     color: opt.primaryColor,
@@ -104,57 +104,21 @@ class ThemePickerDialog extends ConsumerWidget {
                             ),
                             const SizedBox(width: 14),
                             Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Text(
-                                        opt.label,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 15,
-                                          color: isSelected
-                                              ? theme.colorScheme.primary
-                                              : theme.colorScheme.onSurface,
-                                        ),
-                                      ),
-                                      if (opt.isDark) ...[
-                                        const SizedBox(width: 6),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 6, vertical: 1),
-                                          decoration: BoxDecoration(
-                                            color: Colors.black45,
-                                            borderRadius:
-                                                BorderRadius.circular(6),
-                                          ),
-                                          child: const Text(
-                                            'DARK',
-                                            style: TextStyle(
-                                              fontSize: 9,
-                                              fontWeight: FontWeight.bold,
-                                              letterSpacing: 0.5,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    opt.subtitle,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: theme.colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ],
+                              child: Text(
+                                opt.label,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                  color: isSelected
+                                      ? theme.colorScheme.primary
+                                      : theme.colorScheme.onSurface,
+                                ),
                               ),
                             ),
                             if (isSelected)
                               Icon(
-                                Icons.check_circle,
+                                Icons.check,
+                                size: 20,
                                 color: theme.colorScheme.primary,
                               ),
                           ],
@@ -163,11 +127,6 @@ class ThemePickerDialog extends ConsumerWidget {
                     );
                   },
                 ),
-              ),
-              const SizedBox(height: 12),
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('完成'),
               ),
             ],
           ),

@@ -32,6 +32,14 @@ class RoomState {
   final List<DiscoveredRoom> discoveredRooms;
   final bool isDiscovering;
 
+  final bool hasVotedThisRound;
+  final String? myVotedTargetId;
+  final bool hasNightActedThisRound;
+
+  final int phaseNoticeSeq;
+  final String? phaseNoticeTitle;
+  final String? phaseNoticeBody;
+
   const RoomState({
     required this.selfPlayer,
     this.networkMode = 'p2p',
@@ -41,7 +49,7 @@ class RoomState {
     this.isConnecting = false,
     this.errorMessage,
     this.currentPhase = GamePhase.preparing,
-    this.phaseExtraInfo = '等待特工集结并由房主开启游戏',
+    this.phaseExtraInfo = '等待玩家加入',
     this.currentRound = 1,
     this.myIdentity,
     this.players = const [],
@@ -51,7 +59,41 @@ class RoomState {
     this.playerMarks = const {},
     this.discoveredRooms = const [],
     this.isDiscovering = false,
+    this.hasVotedThisRound = false,
+    this.myVotedTargetId,
+    this.hasNightActedThisRound = false,
+    this.phaseNoticeSeq = 0,
+    this.phaseNoticeTitle,
+    this.phaseNoticeBody,
   });
+
+  bool get isSpectator =>
+      selfPlayer.role == GameRoles.spectator ||
+      myIdentity?.role == GameRoles.spectator;
+
+  bool get canSendChat =>
+      !isSpectator &&
+      (currentPhase == GamePhase.preparing ||
+          (currentPhase == GamePhase.description &&
+              currentRound == 1 &&
+              selfPlayer.isAlive));
+
+  bool get canVote =>
+      !isSpectator &&
+      currentPhase == GamePhase.voting &&
+      selfPlayer.isAlive &&
+      !hasVotedThisRound;
+
+  bool get canNightAct =>
+      !isSpectator &&
+      currentPhase == GamePhase.nightAction &&
+      selfPlayer.isAlive &&
+      !hasNightActedThisRound;
+
+  bool get canBlankGuess =>
+      !isSpectator &&
+      currentPhase == GamePhase.blankGuess &&
+      myIdentity?.role == GameRoles.blank;
 
   RoomState copyWith({
     Player? selfPlayer,
@@ -75,6 +117,14 @@ class RoomState {
     Map<String, String>? playerMarks,
     List<DiscoveredRoom>? discoveredRooms,
     bool? isDiscovering,
+    bool? hasVotedThisRound,
+    String? myVotedTargetId,
+    bool clearMyVotedTarget = false,
+    bool? hasNightActedThisRound,
+    int? phaseNoticeSeq,
+    String? phaseNoticeTitle,
+    String? phaseNoticeBody,
+    bool clearPhaseNotice = false,
   }) {
     return RoomState(
       selfPlayer: selfPlayer ?? this.selfPlayer,
@@ -90,11 +140,24 @@ class RoomState {
       myIdentity: clearIdentity ? null : (myIdentity ?? this.myIdentity),
       players: players ?? this.players,
       chatMessages: chatMessages ?? this.chatMessages,
-      settlementDetails: clearSettlement ? null : (settlementDetails ?? this.settlementDetails),
+      settlementDetails: clearSettlement
+          ? null
+          : (settlementDetails ?? this.settlementDetails),
       winner: clearWinner ? null : (winner ?? this.winner),
       playerMarks: playerMarks ?? this.playerMarks,
       discoveredRooms: discoveredRooms ?? this.discoveredRooms,
       isDiscovering: isDiscovering ?? this.isDiscovering,
+      hasVotedThisRound: hasVotedThisRound ?? this.hasVotedThisRound,
+      myVotedTargetId: clearMyVotedTarget
+          ? null
+          : (myVotedTargetId ?? this.myVotedTargetId),
+      hasNightActedThisRound:
+          hasNightActedThisRound ?? this.hasNightActedThisRound,
+      phaseNoticeSeq: phaseNoticeSeq ?? this.phaseNoticeSeq,
+      phaseNoticeTitle:
+          clearPhaseNotice ? null : (phaseNoticeTitle ?? this.phaseNoticeTitle),
+      phaseNoticeBody:
+          clearPhaseNotice ? null : (phaseNoticeBody ?? this.phaseNoticeBody),
     );
   }
 }
@@ -119,8 +182,8 @@ class GameController extends StateNotifier<RoomState> {
   GameController()
       : super(RoomState(
           selfPlayer: Player(
-            id: 'agent_${Random().nextInt(899999) + 100000}',
-            name: '特工_${Random().nextInt(8999) + 1000}',
+            id: 'player_${Random().nextInt(899999) + 100000}',
+            name: '玩家_${Random().nextInt(8999) + 1000}',
             avatar: 'characters/detective.svg',
           ),
         )) {
@@ -130,6 +193,8 @@ class GameController extends StateNotifier<RoomState> {
   Future<void> _loadSavedProfile() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (!mounted || state.isInRoom) return;
+
       final savedId = prefs.getString('wga_player_id');
       final savedName = prefs.getString('wga_player_name');
       var savedAvatar = prefs.getString('wga_player_avatar');
@@ -142,6 +207,7 @@ class GameController extends StateNotifier<RoomState> {
       final avatar = savedAvatar;
 
       if (savedId == null) await prefs.setString('wga_player_id', id);
+      if (!mounted || state.isInRoom) return;
 
       state = state.copyWith(
         selfPlayer: state.selfPlayer.copyWith(
@@ -174,6 +240,7 @@ class GameController extends StateNotifier<RoomState> {
 
     try {
       await leaveRoom();
+      if (!mounted) return;
 
       final roomId = customRoomId?.trim().isNotEmpty == true
           ? customRoomId!.trim()
@@ -184,9 +251,11 @@ class GameController extends StateNotifier<RoomState> {
 
       if (mode == 'p2p') {
         _transport = WebRtcP2PTransport(selfId: state.selfPlayer.id);
+        _listenTransport();
         await _transport!.hostRoom(roomId);
       } else {
         _transport = LanTransport(selfId: state.selfPlayer.id);
+        _listenTransport();
         await _transport!.hostRoom(roomId, port: port ?? 8888);
 
         // 启动局域网 UDP 探针广播
@@ -201,8 +270,7 @@ class GameController extends StateNotifier<RoomState> {
         );
       }
 
-      _listenTransport();
-
+      if (!mounted) return;
       state = state.copyWith(
         isHost: true,
         isInRoom: true,
@@ -210,18 +278,29 @@ class GameController extends StateNotifier<RoomState> {
         roomId: roomId,
         networkMode: mode,
         currentPhase: GamePhase.preparing,
-        phaseExtraInfo: '房间已就绪，当前可邀请其他特工或加入机器人',
+        currentRound: 1,
+        phaseExtraInfo: '等待玩家加入，4~12 人可开局',
         players: _hostEngine!.players.values.toList(),
+        playerMarks: const {},
+        hasVotedThisRound: false,
+        clearMyVotedTarget: true,
+        hasNightActedThisRound: false,
+        phaseNoticeSeq: 0,
+        clearPhaseNotice: true,
         chatMessages: [
           GameMessage.chat(
             senderId: 'SYSTEM',
-            text: '【系统提示】特工房间已开启，房间号：$roomId。等待特工入局。',
+            text: '房间已创建（房间号：$roomId）。',
             isSystem: true,
           ),
         ],
       );
     } catch (e) {
+      await _cleanupTransport();
+      if (!mounted) return;
       state = state.copyWith(
+        isHost: false,
+        isInRoom: false,
         isConnecting: false,
         errorMessage: '创建房间失败: $e',
       );
@@ -239,9 +318,41 @@ class GameController extends StateNotifier<RoomState> {
 
     try {
       await leaveRoom();
+      if (!mounted) return;
+
+      _transport = mode == 'p2p'
+          ? WebRtcP2PTransport(selfId: state.selfPlayer.id)
+          : LanTransport(selfId: state.selfPlayer.id);
+
+      // 先初始化客户端状态并挂载传输监听，再发起连接，避免快速本地回环下首帧 syncState 丢失
+      state = state.copyWith(
+        isHost: false,
+        isInRoom: true,
+        isConnecting: true,
+        roomId: roomId,
+        networkMode: mode,
+        currentPhase: GamePhase.preparing,
+        currentRound: 1,
+        phaseExtraInfo: '等待房主开始',
+        players: [state.selfPlayer],
+        playerMarks: const {},
+        hasVotedThisRound: false,
+        clearMyVotedTarget: true,
+        hasNightActedThisRound: false,
+        phaseNoticeSeq: 0,
+        clearPhaseNotice: true,
+        chatMessages: [
+          GameMessage.chat(
+            senderId: 'SYSTEM',
+            text: '已加入房间：$roomId。',
+            isSystem: true,
+          ),
+        ],
+      );
+
+      _listenTransport();
 
       if (mode == 'p2p') {
-        _transport = WebRtcP2PTransport(selfId: state.selfPlayer.id);
         await _transport!.joinRoom(
           roomId,
           playerId: state.selfPlayer.id,
@@ -249,7 +360,6 @@ class GameController extends StateNotifier<RoomState> {
           avatar: state.selfPlayer.avatar,
         );
       } else {
-        _transport = LanTransport(selfId: state.selfPlayer.id);
         await _transport!.joinRoom(
           roomId,
           host: host,
@@ -260,29 +370,41 @@ class GameController extends StateNotifier<RoomState> {
         );
       }
 
-      _listenTransport();
-
+      if (!mounted) return;
+      state = state.copyWith(isConnecting: false);
+    } catch (e) {
+      await _cleanupTransport();
+      if (!mounted) return;
       state = state.copyWith(
         isHost: false,
-        isInRoom: true,
+        isInRoom: false,
         isConnecting: false,
-        roomId: roomId,
-        networkMode: mode,
-        players: [state.selfPlayer],
-        chatMessages: [
-          GameMessage.chat(
-            senderId: 'SYSTEM',
-            text: '【系统提示】已成功潜入房间：$roomId。等待房主启动博弈。',
-            isSystem: true,
-          ),
-        ],
-      );
-    } catch (e) {
-      state = state.copyWith(
-        isConnecting: false,
+        roomId: '',
+        players: const [],
+        chatMessages: const [],
         errorMessage: '加入房间失败: $e',
       );
     }
+  }
+
+  Future<void> _cleanupTransport() async {
+    try {
+      await _transport?.disconnect();
+    } catch (_) {}
+
+    _lanDiscovery?.stopAdvertising();
+    _lanDiscovery?.dispose();
+    _lanDiscovery = null;
+
+    _msgSub?.cancel();
+    _msgSub = null;
+    _peerJoinedSub?.cancel();
+    _peerJoinedSub = null;
+    _peerLeftSub?.cancel();
+    _peerLeftSub = null;
+
+    _hostEngine = null;
+    _transport = null;
   }
 
   /// 退出房间并释放连接
@@ -290,33 +412,41 @@ class GameController extends StateNotifier<RoomState> {
     if (state.isInRoom && _transport != null) {
       try {
         if (!state.isHost) {
-          await _transport!.sendToHost(GameMessage.leave(playerId: state.selfPlayer.id));
+          await _transport!.sendToHost(
+            GameMessage.leave(playerId: state.selfPlayer.id),
+          );
         }
-        await _transport!.disconnect();
       } catch (_) {}
     }
 
-    _lanDiscovery?.stopAdvertising();
-    _lanDiscovery?.dispose();
-    _lanDiscovery = null;
+    await _cleanupTransport();
 
-    _msgSub?.cancel();
-    _peerJoinedSub?.cancel();
-    _peerLeftSub?.cancel();
-
-    _hostEngine = null;
-    _transport = null;
-
+    if (!mounted) return;
     state = state.copyWith(
+      selfPlayer: state.selfPlayer.copyWith(
+        isAlive: true,
+        clearRole: true,
+        clearWord: true,
+        clearHint: true,
+        clearMark: true,
+      ),
       isInRoom: false,
       isHost: false,
       roomId: '',
       currentPhase: GamePhase.preparing,
+      currentRound: 1,
+      phaseExtraInfo: '',
       clearIdentity: true,
       clearSettlement: true,
       clearWinner: true,
-      players: [],
-      chatMessages: [],
+      players: const [],
+      chatMessages: const [],
+      playerMarks: const {},
+      hasVotedThisRound: false,
+      clearMyVotedTarget: true,
+      hasNightActedThisRound: false,
+      phaseNoticeSeq: 0,
+      clearPhaseNotice: true,
     );
   }
 
@@ -330,7 +460,7 @@ class GameController extends StateNotifier<RoomState> {
     });
 
     _peerJoinedSub = _transport?.onPeerJoined.listen((peerId) {
-      // 房主感知到新连接，若房主有权威快照可全量下发
+      // 房主感知到新连接，下发权威快照
       if (state.isHost && _hostEngine != null) {
         _syncHostStateToPeer(peerId);
       }
@@ -363,15 +493,18 @@ class GameController extends StateNotifier<RoomState> {
     switch (msg.type) {
       case GameMessageType.joinReq:
         final pid = payload['player_id']?.toString() ?? '';
-        final pname = payload['player_name']?.toString() ?? '特工';
-        final pavatar = payload['avatar']?.toString() ?? 'agent_1';
+        final pname = payload['player_name']?.toString() ?? '玩家';
+        final pavatar =
+            payload['avatar']?.toString() ?? 'characters/detective.svg';
         if (pid.isNotEmpty) {
           final existing = _hostEngine?.players[pid];
           final newPlayer = Player(id: pid, name: pname, avatar: pavatar);
           _hostEngine?.addPlayer(newPlayer);
 
           // 既有玩家断线重连恢复身份
-          if (existing != null && existing.role != null && existing.role != GameRoles.spectator) {
+          if (existing != null &&
+              existing.role != null &&
+              existing.role != GameRoles.spectator) {
             final assignment = _hostEngine?.getIdentityAssignment(pid);
             if (assignment != null) {
               _transport?.sendToPeer(
@@ -386,7 +519,7 @@ class GameController extends StateNotifier<RoomState> {
           }
 
           _syncHostStateToAll();
-          _broadcastSystemChat('特工【$pname】潜入房间。');
+          _broadcastSystemChat('$pname 加入了房间。');
         }
         break;
 
@@ -397,15 +530,39 @@ class GameController extends StateNotifier<RoomState> {
           _hostEngine?.removePlayer(pid);
           _syncHostStateToAll();
           if (p != null) {
-            _broadcastSystemChat('特工【${p.name}】撤出房间。');
+            _broadcastSystemChat('${p.name} 离开了房间。');
           }
         }
         break;
 
       case GameMessageType.chat:
-        // 房主公屏转发
-        _broadcastMessage(msg);
-        _appendLocalChat(msg);
+        if (_hostEngine == null) break;
+        if (payload['is_system'] == true) break;
+
+        final senderId = payload['sender_id']?.toString() ?? '';
+        final sender = _hostEngine!.players[senderId];
+        if (sender == null || sender.role == GameRoles.spectator) break;
+
+        final phase = _hostEngine!.phase;
+        final round = _hostEngine!.round;
+        final canSpeak = phase == GamePhase.preparing ||
+            (phase == GamePhase.description && round == 1 && sender.isAlive);
+        if (!canSpeak) break;
+
+        final isRound1Speech = phase == GamePhase.description && round == 1;
+        final normalizedMsg = GameMessage(
+          type: GameMessageType.chat,
+          timestamp: msg.timestamp,
+          payload: {
+            'sender_id': senderId,
+            'text': payload['text']?.toString() ?? '',
+            'is_system': false,
+            if (isRound1Speech) 'is_speech': true,
+            if (isRound1Speech) 'speech_round': 1,
+          },
+        );
+        _broadcastMessage(normalizedMsg);
+        _appendLocalChat(normalizedMsg);
         break;
 
       case GameMessageType.vote:
@@ -413,11 +570,8 @@ class GameController extends StateNotifier<RoomState> {
         final targetId = payload['target_id']?.toString() ?? '';
         if (voterId.isNotEmpty && targetId.isNotEmpty && _hostEngine != null) {
           final res = _hostEngine!.submitVote(voterId, targetId);
-          if (res.success) {
-            _broadcastSystemChat('【公投表决】投票进度：${res.currentVotes}/${res.totalAlive}');
-            if (res.allVoted) {
-              advancePhase();
-            }
+          if (res.success && res.allVoted) {
+            advancePhase();
           }
         }
         break;
@@ -427,12 +581,12 @@ class GameController extends StateNotifier<RoomState> {
         final targetId = payload['target_id']?.toString() ?? '';
         if (actorId.isNotEmpty && targetId.isNotEmpty && _hostEngine != null) {
           final res = _hostEngine!.submitNightAction(actorId, targetId);
-          // 单播私密反馈给行动者
+          // 单播私密反馈给行动者（不泄露真实身份与成败细节）
           _transport?.sendToPeer(
             actorId,
             GameMessage.chat(
               senderId: 'SYSTEM',
-              text: '【行动反馈】${res.feedback}',
+              text: res.feedback,
               isSystem: true,
             ),
           );
@@ -449,8 +603,14 @@ class GameController extends StateNotifier<RoomState> {
             guessA: wordA,
             guessB: wordB,
           );
-          _broadcastSystemChat(res.message);
-          _syncHostStateToAll();
+          if (res.success) {
+            _broadcastSystemChat(res.message);
+            if (_hostEngine!.phase == GamePhase.nightAction) {
+              state = state.copyWith(hasNightActedThisRound: false);
+              _driveBotNightActions();
+            }
+            _syncHostStateToAll(announcement: res.message);
+          }
         }
         break;
 
@@ -465,6 +625,9 @@ class GameController extends StateNotifier<RoomState> {
     switch (msg.type) {
       case GameMessageType.syncState:
         final payload = msg.payload;
+        final prevPhase = state.currentPhase;
+        final prevRound = state.currentRound;
+
         final phase = GamePhaseExt.fromInt((payload['phase'] as num?)?.toInt() ?? 0);
         final round = (payload['round'] as num?)?.toInt() ?? 1;
         final winner = payload['winner']?.toString();
@@ -481,20 +644,82 @@ class GameController extends StateNotifier<RoomState> {
           );
         }
 
-        // 同步自身存活状态
+        // 同步自身状态
         final mySelf = updatedPlayers.firstWhere(
           (p) => p.id == state.selfPlayer.id,
           orElse: () => state.selfPlayer,
         );
 
+        final phaseChanged = phase != prevPhase ||
+            (phase == GamePhase.description && round != prevRound);
+        final enteringNewGame = phase == GamePhase.description &&
+            round == 1 &&
+            prevPhase != GamePhase.description;
+        final enteringRound2PlusDesc = phase == GamePhase.description &&
+            round >= 2 &&
+            (round > prevRound || prevPhase != GamePhase.description);
+        final enteringPreparing =
+            phase == GamePhase.preparing && prevPhase != GamePhase.preparing;
+        final enteringSettlement =
+            phase == GamePhase.settlement && prevPhase != GamePhase.settlement;
+
+        final resetVote = (phase == GamePhase.voting && prevPhase != GamePhase.voting) ||
+            enteringPreparing ||
+            enteringNewGame;
+        final resetNight =
+            (phase == GamePhase.nightAction && prevPhase != GamePhase.nightAction) ||
+                enteringPreparing ||
+                enteringNewGame;
+
+        var nextChat = state.chatMessages;
+        if (enteringPreparing || enteringNewGame) {
+          nextChat = _stripSpeechTags(nextChat);
+        }
+
+        int nextNoticeSeq = state.phaseNoticeSeq;
+        String? nextNoticeTitle = state.phaseNoticeTitle;
+        String? nextNoticeBody = state.phaseNoticeBody;
+        if (phaseChanged &&
+            phase != GamePhase.preparing &&
+            phase != GamePhase.settlement) {
+          nextNoticeSeq = state.phaseNoticeSeq + 1;
+          nextNoticeTitle = payload['phase_notice_title']?.toString() ??
+              _defaultPhaseNoticeTitle(phase, round);
+          nextNoticeBody = payload['phase_notice_body']?.toString() ??
+              _defaultPhaseNoticeBody(phase, round);
+        }
+
+        final nextExtraInfo = payload['phase_extra_info']?.toString() ??
+            _defaultPhaseExtraInfo(phase, round);
+
         state = state.copyWith(
           currentPhase: phase,
           currentRound: round,
+          phaseExtraInfo: nextExtraInfo,
           winner: winner,
+          clearWinner: winner == null,
           players: updatedPlayers,
           selfPlayer: mySelf,
           settlementDetails: details,
+          clearSettlement: details == null,
+          clearIdentity: phase == GamePhase.preparing,
+          playerMarks:
+              (enteringSettlement || enteringPreparing || enteringNewGame)
+                  ? const {}
+                  : state.playerMarks,
+          hasVotedThisRound: resetVote ? false : state.hasVotedThisRound,
+          clearMyVotedTarget: resetVote,
+          hasNightActedThisRound:
+              resetNight ? false : state.hasNightActedThisRound,
+          chatMessages: nextChat,
+          phaseNoticeSeq: nextNoticeSeq,
+          phaseNoticeTitle: nextNoticeTitle,
+          phaseNoticeBody: nextNoticeBody,
         );
+
+        if (enteringRound2PlusDesc) {
+          _replayRound1Speeches();
+        }
         break;
 
       case GameMessageType.syncPhase:
@@ -536,6 +761,16 @@ class GameController extends StateNotifier<RoomState> {
         customSimilarity: similarity,
       );
 
+      state = state.copyWith(
+        chatMessages: _stripSpeechTags(state.chatMessages),
+        playerMarks: const {},
+        hasVotedThisRound: false,
+        clearMyVotedTarget: true,
+        hasNightActedThisRound: false,
+        clearSettlement: true,
+        clearWinner: true,
+      );
+
       // 单播下发身份词包
       for (final entry in assignments.entries) {
         final pid = entry.key;
@@ -555,8 +790,10 @@ class GameController extends StateNotifier<RoomState> {
         }
       }
 
-      _syncHostStateToAll();
-      _broadcastSystemChat('【系统提示】博弈正式启动！请存活特工查阅「我的身份」，第一轮描述发言开始。');
+      const startNotice = '游戏开始，第 1 轮描述开始，请存活玩家描述自己的词语。';
+      _syncHostStateToAll(announcement: startNotice);
+      _broadcastSystemChat(startNotice);
+      _driveBotSpeeches();
     } catch (e) {
       state = state.copyWith(errorMessage: e.toString());
     }
@@ -567,32 +804,64 @@ class GameController extends StateNotifier<RoomState> {
     if (!state.isHost || _hostEngine == null) return;
 
     final res = _hostEngine!.advancePhase();
+    String latestAnnouncement = res.announcement;
     _broadcastSystemChat(res.announcement);
 
-    // 机器人行为自动驱动
     if (res.phase == GamePhase.voting) {
-      _driveBotVotes();
+      state = state.copyWith(
+        hasVotedThisRound: false,
+        clearMyVotedTarget: true,
+      );
+      final autoAdvanced = _driveBotVotes();
+      if (autoAdvanced) return;
     } else if (res.phase == GamePhase.nightAction) {
+      state = state.copyWith(hasNightActedThisRound: false);
       _driveBotNightActions();
-    } else if (res.phase == GamePhase.description) {
-      _driveBotSpeeches();
     } else if (res.phase == GamePhase.blankGuess) {
-      _driveBotBlankGuess();
+      final botGuessMsg = _driveBotBlankGuess();
+      if (botGuessMsg != null) {
+        latestAnnouncement = botGuessMsg;
+      }
+      if (_hostEngine!.phase == GamePhase.nightAction) {
+        state = state.copyWith(hasNightActedThisRound: false);
+        _driveBotNightActions();
+      }
     }
 
-    _syncHostStateToAll();
+    _syncHostStateToAll(announcement: latestAnnouncement);
+
+    if (_hostEngine!.phase == GamePhase.description &&
+        _hostEngine!.round >= 2) {
+      _replayRound1Speeches();
+    }
   }
 
   /// 提交白天投票
   Future<void> submitVote(String targetId) async {
-    if (state.currentPhase != GamePhase.voting) return;
+    if (!state.canVote) return;
+
+    String targetName = targetId;
+    for (final p in state.players) {
+      if (p.id == targetId) {
+        targetName = p.name;
+        break;
+      }
+    }
 
     if (state.isHost && _hostEngine != null) {
       final res = _hostEngine!.submitVote(state.selfPlayer.id, targetId);
       if (res.success) {
-        _broadcastSystemChat('【公投表决】投票进度：${res.currentVotes}/${res.totalAlive}');
+        state = state.copyWith(
+          hasVotedThisRound: true,
+          myVotedTargetId: targetId,
+        );
+        _appendLocalChat(GameMessage.chat(
+          senderId: 'SYSTEM',
+          text: '你已投票给 $targetName',
+          isSystem: true,
+        ));
         if (res.allVoted) {
-          advancePhase();
+          await advancePhase();
         } else {
           _syncHostStateToAll();
         }
@@ -600,7 +869,15 @@ class GameController extends StateNotifier<RoomState> {
         state = state.copyWith(errorMessage: res.message);
       }
     } else {
-      // 客户端发往房主
+      state = state.copyWith(
+        hasVotedThisRound: true,
+        myVotedTargetId: targetId,
+      );
+      _appendLocalChat(GameMessage.chat(
+        senderId: 'SYSTEM',
+        text: '你已投票给 $targetName',
+        isSystem: true,
+      ));
       await _transport?.sendToHost(GameMessage.vote(
         voterId: state.selfPlayer.id,
         targetId: targetId,
@@ -608,18 +885,24 @@ class GameController extends StateNotifier<RoomState> {
     }
   }
 
-  /// 提交黑夜暗杀行动
+  /// 提交夜间行动
   Future<void> submitNightAction(String targetId) async {
-    if (state.currentPhase != GamePhase.nightAction) return;
+    if (!state.canNightAct) return;
 
     if (state.isHost && _hostEngine != null) {
       final res = _hostEngine!.submitNightAction(state.selfPlayer.id, targetId);
-      _appendLocalChat(GameMessage.chat(
-        senderId: 'SYSTEM',
-        text: '【行动反馈】${res.feedback}',
-        isSystem: true,
-      ));
+      if (res.success) {
+        state = state.copyWith(hasNightActedThisRound: true);
+        _appendLocalChat(GameMessage.chat(
+          senderId: 'SYSTEM',
+          text: res.feedback,
+          isSystem: true,
+        ));
+      } else {
+        state = state.copyWith(errorMessage: res.feedback);
+      }
     } else {
+      state = state.copyWith(hasNightActedThisRound: true);
       await _transport?.sendToHost(GameMessage.night(
         actorId: state.selfPlayer.id,
         targetId: targetId,
@@ -627,9 +910,9 @@ class GameController extends StateNotifier<RoomState> {
     }
   }
 
-  /// 提交白板双词逆袭
+  /// 提交白板双词猜词
   Future<void> submitBlankGuess(String wordA, String wordB) async {
-    if (state.currentPhase != GamePhase.blankGuess) return;
+    if (!state.canBlankGuess) return;
 
     if (state.isHost && _hostEngine != null) {
       final res = _hostEngine!.submitBlankGuess(
@@ -637,8 +920,14 @@ class GameController extends StateNotifier<RoomState> {
         guessA: wordA,
         guessB: wordB,
       );
-      _broadcastSystemChat(res.message);
-      _syncHostStateToAll();
+      if (res.success) {
+        _broadcastSystemChat(res.message);
+        if (_hostEngine!.phase == GamePhase.nightAction) {
+          state = state.copyWith(hasNightActedThisRound: false);
+          _driveBotNightActions();
+        }
+        _syncHostStateToAll(announcement: res.message);
+      }
     } else {
       await _transport?.sendToHost(GameMessage.blankGuess(
         playerId: state.selfPlayer.id,
@@ -648,7 +937,7 @@ class GameController extends StateNotifier<RoomState> {
     }
   }
 
-  /// 房主：一键填充虚拟特工机器人（最多至 12 人）
+  /// 房主：添加机器人（最多至 12 人）
   void addMockBots(int count) {
     if (!state.isHost || _hostEngine == null) return;
     if (_hostEngine!.phase != GamePhase.preparing) return;
@@ -659,13 +948,31 @@ class GameController extends StateNotifier<RoomState> {
     if (addCount <= 0) return;
 
     final existingIds = _hostEngine!.players.keys.toList();
-    final newBots = MockBots.generateBots(addCount, excludeIds: existingIds);
+    final existingNames =
+        _hostEngine!.players.values.map((p) => p.name).toList();
+    final newBots = MockBots.generateBots(
+      addCount,
+      excludeIds: existingIds,
+      excludeNames: existingNames,
+    );
     for (final b in newBots) {
       _hostEngine!.addPlayer(b);
     }
 
     _syncHostStateToAll();
-    _broadcastSystemChat('【特工局召集】已成功指派 $addCount 名虚拟特工加入房间！');
+    _broadcastSystemChat('已添加 ${newBots.length} 名机器人。');
+  }
+
+  /// 房主：将房间人数用机器人补至指定总数（4~12 人）
+  void fillBotsToCount(int targetTotal) {
+    if (!state.isHost || _hostEngine == null) return;
+    if (_hostEngine!.phase != GamePhase.preparing) return;
+
+    final clamped = targetTotal.clamp(4, 12);
+    final needed = clamped - _hostEngine!.players.length;
+    if (needed > 0) {
+      addMockBots(needed);
+    }
   }
 
   /// 房主：清空所有机器人
@@ -683,7 +990,7 @@ class GameController extends StateNotifier<RoomState> {
     }
 
     _syncHostStateToAll();
-    _broadcastSystemChat('【特工局召集】已解散全部虚拟特工。');
+    _broadcastSystemChat('已移除全部机器人。');
   }
 
   /// 房主：重置游戏至准备状态
@@ -691,19 +998,39 @@ class GameController extends StateNotifier<RoomState> {
     if (!state.isHost || _hostEngine == null) return;
 
     _hostEngine!.reset();
+    state = state.copyWith(
+      chatMessages: _stripSpeechTags(state.chatMessages),
+      clearIdentity: true,
+      clearSettlement: true,
+      clearWinner: true,
+      playerMarks: const {},
+      hasVotedThisRound: false,
+      clearMyVotedTarget: true,
+      hasNightActedThisRound: false,
+    );
     _syncHostStateToAll();
-    _broadcastSystemChat('【系统提示】房主已重置游戏，等待重新发词。');
+    _broadcastSystemChat('房主已重置对局，回到准备阶段。');
   }
 
   /// 发送聊天消息
   Future<void> sendChatMessage(String text) async {
+    if (!state.canSendChat) return;
+
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
 
-    final msg = GameMessage.chat(
-      senderId: state.selfPlayer.name,
-      text: trimmed,
-      isSystem: false,
+    final isRound1Speech =
+        state.currentPhase == GamePhase.description && state.currentRound == 1;
+
+    final msg = GameMessage(
+      type: GameMessageType.chat,
+      payload: {
+        'sender_id': state.selfPlayer.id,
+        'text': trimmed,
+        'is_system': false,
+        if (isRound1Speech) 'is_speech': true,
+        if (isRound1Speech) 'speech_round': 1,
+      },
     );
 
     if (state.isHost) {
@@ -711,11 +1038,10 @@ class GameController extends StateNotifier<RoomState> {
       _appendLocalChat(msg);
     } else {
       await _transport?.sendToHost(msg);
-      _appendLocalChat(msg);
     }
   }
 
-  /// 标记某玩家推理身份
+  /// 标记某玩家推理身份（仅本地可见）
   void markPlayer(String playerId, String roleMark) {
     final updated = Map<String, String>.from(state.playerMarks);
     if (roleMark.isEmpty) {
@@ -726,7 +1052,7 @@ class GameController extends StateNotifier<RoomState> {
     state = state.copyWith(playerMarks: updated);
   }
 
-  /// 开启局域网房间雷达扫描
+  /// 开启局域网房间扫描
   void startLanDiscovery() {
     if (state.isDiscovering) return;
     _lanDiscovery ??= LanDiscovery();
@@ -740,7 +1066,7 @@ class GameController extends StateNotifier<RoomState> {
     state = state.copyWith(isDiscovering: true);
   }
 
-  /// 停止局域网雷达扫描
+  /// 停止局域网房间扫描
   void stopLanDiscovery() {
     _lanDiscoverySub?.cancel();
     _lanDiscoverySub = null;
@@ -750,17 +1076,19 @@ class GameController extends StateNotifier<RoomState> {
 
   // --- 机器人自动行为调度器 ---
 
-  void _driveBotVotes() {
-    if (_hostEngine == null) return;
+  bool _driveBotVotes() {
+    if (_hostEngine == null) return false;
     final botVotes = MockBots.simulateBotVotes(_hostEngine!);
     for (final entry in botVotes.entries) {
       _hostEngine!.submitVote(entry.key, entry.value);
     }
-    // 检查是否全员（如全员均为机器人或存活者仅剩机器人）已完成投票
-    final aliveCount = _hostEngine!.players.values.where((p) => p.isAlive).length;
+    final aliveCount =
+        _hostEngine!.players.values.where((p) => p.isAlive).length;
     if (aliveCount > 0 && _hostEngine!.votes.length >= aliveCount) {
       advancePhase();
+      return true;
     }
+    return false;
   }
 
   void _driveBotNightActions() {
@@ -771,8 +1099,8 @@ class GameController extends StateNotifier<RoomState> {
     }
   }
 
-  void _driveBotBlankGuess() {
-    if (_hostEngine == null) return;
+  String? _driveBotBlankGuess() {
+    if (_hostEngine == null) return null;
     final eliminatedId = _hostEngine!.lastEliminatedPlayerId;
     if (eliminatedId != null) {
       final p = _hostEngine!.players[eliminatedId];
@@ -785,20 +1113,32 @@ class GameController extends StateNotifier<RoomState> {
             guessB: guess['word_b'] ?? '',
           );
           _broadcastSystemChat(res.message);
+          return res.message;
         }
       }
     }
+    return null;
   }
 
   void _driveBotSpeeches() {
     if (_hostEngine == null) return;
-    final aliveBots = _hostEngine!.players.values.where((p) => p.isAlive && p.isBot).toList();
+    if (_hostEngine!.phase != GamePhase.description ||
+        _hostEngine!.round != 1) {
+      return;
+    }
+    final aliveBots =
+        _hostEngine!.players.values.where((p) => p.isAlive && p.isBot).toList();
     for (final bot in aliveBots) {
       final speech = MockBots.generateBotSpeech(bot, _hostEngine!.theme);
-      final chat = GameMessage.chat(
-        senderId: bot.name,
-        text: speech,
-        isSystem: false,
+      final chat = GameMessage(
+        type: GameMessageType.chat,
+        payload: {
+          'sender_id': bot.id,
+          'text': speech,
+          'is_system': false,
+          'is_speech': true,
+          'speech_round': 1,
+        },
       );
       _broadcastMessage(chat);
       _appendLocalChat(chat);
@@ -807,32 +1147,75 @@ class GameController extends StateNotifier<RoomState> {
 
   // --- 辅助方法 ---
 
-  void _syncHostStateToAll() {
+  void _syncHostStateToAll({String? announcement}) {
     if (_hostEngine == null) return;
-    // 对外广播脱敏快照，保护绝密词汇与未公开身份
-    final snapshot = _hostEngine!.toSnapshotMap(maskSecrets: true);
-    final syncMsg = GameMessage.syncState(snapshot);
-    _broadcastMessage(syncMsg);
 
-    // 房主本地同步更新
+    final prevPhase = state.currentPhase;
+    final prevRound = state.currentRound;
     final phase = _hostEngine!.phase;
     final round = _hostEngine!.round;
     final list = _hostEngine!.players.values.toList();
     final mySelf = _hostEngine!.players[state.selfPlayer.id] ?? state.selfPlayer;
 
+    final phaseChanged = phase != prevPhase ||
+        (phase == GamePhase.description && round != prevRound);
+
+    final noticeTitle = _defaultPhaseNoticeTitle(phase, round);
+    final noticeBody =
+        announcement ?? _defaultPhaseNoticeBody(phase, round);
+    final extraInfo = _defaultPhaseExtraInfo(phase, round);
+
+    // 对外广播脱敏快照，保护词汇与未公开身份
+    final snapshot = _hostEngine!.toSnapshotMap(maskSecrets: true);
+    snapshot['phase_extra_info'] = extraInfo;
+    if (phaseChanged &&
+        phase != GamePhase.preparing &&
+        phase != GamePhase.settlement) {
+      snapshot['phase_notice_title'] = noticeTitle;
+      snapshot['phase_notice_body'] = noticeBody;
+    }
+
+    final syncMsg = GameMessage.syncState(snapshot);
+    _broadcastMessage(syncMsg);
+
+    int nextNoticeSeq = state.phaseNoticeSeq;
+    String? nextNoticeTitle = state.phaseNoticeTitle;
+    String? nextNoticeBody = state.phaseNoticeBody;
+    if (phaseChanged &&
+        phase != GamePhase.preparing &&
+        phase != GamePhase.settlement) {
+      nextNoticeSeq = state.phaseNoticeSeq + 1;
+      nextNoticeTitle = noticeTitle;
+      nextNoticeBody = noticeBody;
+    }
+
+    final enteringSettlement =
+        phase == GamePhase.settlement && prevPhase != GamePhase.settlement;
+
     state = state.copyWith(
       currentPhase: phase,
       currentRound: round,
+      phaseExtraInfo: extraInfo,
       winner: _hostEngine!.winner,
+      clearWinner: _hostEngine!.winner == null,
       settlementDetails: _hostEngine!.settlementDetails,
+      clearSettlement: _hostEngine!.settlementDetails == null,
+      clearIdentity: phase == GamePhase.preparing,
       players: list,
       selfPlayer: mySelf,
+      playerMarks: enteringSettlement ? const {} : state.playerMarks,
+      phaseNoticeSeq: nextNoticeSeq,
+      phaseNoticeTitle: nextNoticeTitle,
+      phaseNoticeBody: nextNoticeBody,
     );
   }
 
   void _syncHostStateToPeer(String peerId) {
     if (_hostEngine == null) return;
-    final snapshot = _hostEngine!.toSnapshotMap(maskSecrets: true, forPlayerId: peerId);
+    final snapshot =
+        _hostEngine!.toSnapshotMap(maskSecrets: true, forPlayerId: peerId);
+    snapshot['phase_extra_info'] =
+        _defaultPhaseExtraInfo(_hostEngine!.phase, _hostEngine!.round);
     final syncMsg = GameMessage.syncState(snapshot);
     _transport?.sendToPeer(peerId, syncMsg);
   }
@@ -852,11 +1235,133 @@ class GameController extends StateNotifier<RoomState> {
   }
 
   void _appendLocalChat(GameMessage msg) {
-    final updated = List<GameMessage>.from(state.chatMessages)..add(msg);
+    final updated = List<GameMessage>.from(state.chatMessages);
+    final isSystem = msg.payload['is_system'] == true;
+
+    if (!isSystem &&
+        state.currentPhase == GamePhase.description &&
+        state.currentRound == 1) {
+      final senderId = msg.payload['sender_id']?.toString() ?? '';
+      final normalizedMsg = GameMessage(
+        type: GameMessageType.chat,
+        timestamp: msg.timestamp,
+        payload: {
+          ...msg.payload,
+          'is_speech': true,
+          'speech_round': 1,
+        },
+      );
+
+      final existingIdx = updated.indexWhere((m) {
+        final p = m.payload;
+        return p['is_system'] != true &&
+            p['sender_id']?.toString() == senderId &&
+            p['is_speech'] == true &&
+            (p['speech_round'] as num?)?.toInt() == 1;
+      });
+
+      if (existingIdx != -1) {
+        updated[existingIdx] = normalizedMsg;
+      } else {
+        updated.add(normalizedMsg);
+      }
+    } else {
+      updated.add(msg);
+    }
+
     if (updated.length > 200) {
       updated.removeRange(0, updated.length - 200);
     }
     state = state.copyWith(chatMessages: updated);
+  }
+
+  void _replayRound1Speeches() {
+    bool isRound1Speech(GameMessage m) {
+      final p = m.payload;
+      return p['is_system'] != true &&
+          p['is_speech'] == true &&
+          (p['speech_round'] as num?)?.toInt() == 1;
+    }
+
+    final speeches = state.chatMessages.where(isRound1Speech).toList();
+    if (speeches.isEmpty) return;
+
+    final reordered =
+        state.chatMessages.where((m) => !isRound1Speech(m)).toList()
+          ..addAll(speeches);
+
+    if (reordered.length > 200) {
+      reordered.removeRange(0, reordered.length - 200);
+    }
+    state = state.copyWith(chatMessages: reordered);
+  }
+
+  List<GameMessage> _stripSpeechTags(List<GameMessage> messages) {
+    return messages.map((m) {
+      if (m.payload['is_speech'] == true) {
+        final nextPayload = Map<String, dynamic>.from(m.payload)
+          ..['is_speech'] = false;
+        return GameMessage(
+          type: m.type,
+          timestamp: m.timestamp,
+          payload: nextPayload,
+        );
+      }
+      return m;
+    }).toList();
+  }
+
+  String _defaultPhaseNoticeTitle(GamePhase phase, int round) {
+    switch (phase) {
+      case GamePhase.preparing:
+        return '准备中';
+      case GamePhase.description:
+        return '第 $round 轮 · 描述';
+      case GamePhase.voting:
+        return '第 $round 轮 · 投票';
+      case GamePhase.nightAction:
+        return '夜晚阶段';
+      case GamePhase.blankGuess:
+        return '白板猜词';
+      case GamePhase.settlement:
+        return '对局结算';
+    }
+  }
+
+  String _defaultPhaseNoticeBody(GamePhase phase, int round) {
+    switch (phase) {
+      case GamePhase.preparing:
+        return '等待房主开始游戏';
+      case GamePhase.description:
+        return round == 1
+            ? '游戏开始，请存活玩家在首轮描述自己的词语。'
+            : '天亮了，已回放第 1 轮发言供参考。';
+      case GamePhase.voting:
+        return '请存活玩家进行匿名投票。';
+      case GamePhase.nightAction:
+        return '进入夜晚阶段，请卧底选择目标。';
+      case GamePhase.blankGuess:
+        return '白板被投出，正在进行双词猜词。';
+      case GamePhase.settlement:
+        return '对局已结束。';
+    }
+  }
+
+  String _defaultPhaseExtraInfo(GamePhase phase, int round) {
+    switch (phase) {
+      case GamePhase.preparing:
+        return '等待玩家加入';
+      case GamePhase.description:
+        return round == 1 ? '首轮描述' : '第 $round 轮 · 回顾线索';
+      case GamePhase.voting:
+        return '第 $round 轮 · 匿名投票';
+      case GamePhase.nightAction:
+        return '夜晚阶段';
+      case GamePhase.blankGuess:
+        return '白板猜词';
+      case GamePhase.settlement:
+        return '对局结束';
+    }
   }
 
   @override

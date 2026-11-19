@@ -2,20 +2,23 @@ import 'dart:math';
 import '../models/game_models.dart';
 import 'game_engine.dart';
 
-/// 虚拟特工（Mock Bot）生成与行为模拟引擎
+/// 机器人（Mock Bot）生成与行为模拟引擎
 class MockBots {
+  static int _botSeq = 0;
+
   static const List<String> botCodenames = [
-    '阿尔法 (Alpha)',
-    '布拉沃 (Bravo)',
-    '查理 (Charlie)',
-    '三角洲 (Delta)',
-    '回声 (Echo)',
-    '狐步 (Foxtrot)',
-    '高尔夫 (Golf)',
-    '旅馆 (Hotel)',
-    '印度 (India)',
-    '朱丽叶 (Juliet)',
-    '基洛 (Kilo)',
+    'Alpha',
+    'Bravo',
+    'Charlie',
+    'Delta',
+    'Echo',
+    'Foxtrot',
+    'Golf',
+    'Hotel',
+    'India',
+    'Juliet',
+    'Kilo',
+    'Lima',
   ];
 
   static const List<String> botAvatars = [
@@ -36,19 +39,29 @@ class MockBots {
     'cyber/glitch.svg',
   ];
 
-  /// 生成指定数量的机器人玩家
-  static List<Player> generateBots(int count, {List<String>? excludeIds}) {
+  /// 生成指定数量的机器人玩家（保证多次增量添加时 ID 与名称均不冲突）
+  static List<Player> generateBots(
+    int count, {
+    List<String>? excludeIds,
+    List<String>? excludeNames,
+  }) {
     final bots = <Player>[];
     final random = Random();
-    final usedNames = <String>{};
+    final excludedIdSet = <String>{...?excludeIds};
+    final excludedNameSet = <String>{...?excludeNames};
 
-    for (var i = 0; i < count && i < botCodenames.length; i++) {
-      final name = '虚拟特工 · ${botCodenames[i]}';
-      if (usedNames.contains(name)) continue;
-      usedNames.add(name);
+    for (final codename in botCodenames) {
+      if (bots.length >= count) break;
+      final name = 'AI · $codename';
+      if (excludedNameSet.contains(name)) continue;
+      excludedNameSet.add(name);
 
-      final id = 'bot_${i + 1}_${DateTime.now().millisecondsSinceEpoch % 10000}';
-      if (excludeIds != null && excludeIds.contains(id)) continue;
+      String id;
+      do {
+        _botSeq++;
+        id = 'bot_${_botSeq}_${DateTime.now().millisecondsSinceEpoch}_${random.nextInt(1000)}';
+      } while (excludedIdSet.contains(id));
+      excludedIdSet.add(id);
 
       bots.add(Player(
         id: id,
@@ -58,6 +71,30 @@ class MockBots {
         isAlive: true,
       ));
     }
+
+    var fallbackIdx = 1;
+    while (bots.length < count) {
+      final name = 'AI · $fallbackIdx';
+      fallbackIdx++;
+      if (excludedNameSet.contains(name)) continue;
+      excludedNameSet.add(name);
+
+      String id;
+      do {
+        _botSeq++;
+        id = 'bot_${_botSeq}_${DateTime.now().millisecondsSinceEpoch}_${random.nextInt(1000)}';
+      } while (excludedIdSet.contains(id));
+      excludedIdSet.add(id);
+
+      bots.add(Player(
+        id: id,
+        name: name,
+        avatar: botAvatars[random.nextInt(botAvatars.length)],
+        isBot: true,
+        isAlive: true,
+      ));
+    }
+
     return bots;
   }
 
@@ -65,17 +102,17 @@ class MockBots {
   static String generateBotSpeech(Player bot, String? topic) {
     final random = Random();
     final quotes = [
-      '我认为这个事物具有非常显著的生活辨识度。',
-      '大家注意观察，它的用途非常专一且常见。',
-      '从外观和使用场景来推测，在场某些人的描述有些含糊。',
+      '我认为这个事物在生活中很有辨识度。',
+      '大家注意观察，它的用途比较专一且常见。',
+      '从外观和使用场景来看，有些人的描述有点含糊。',
       '我的词让我联想到了它的材质和日常手感。',
-      '感觉上一位特工的发言有点偏离核心特征，值得留意。',
-      '这个词在特定季节或场合出现的频率很高。',
+      '感觉有人的发言稍微偏离了核心特征，值得留意。',
+      '这个词在特定场合出现的频率比较高。',
     ];
     return quotes[random.nextInt(quotes.length)];
   }
 
-  /// 模拟机器人自动投票（随机投给除自己之外的某位存活特工）
+  /// 模拟机器人自动投票（随机投给除自己之外的某位存活玩家）
   static Map<String, String> simulateBotVotes(GameEngine engine) {
     final botVotes = <String, String>{};
     final random = Random();
@@ -94,7 +131,7 @@ class MockBots {
     return botVotes;
   }
 
-  /// 模拟机器人黑夜行动（若是卧底，挑选一名存活的非卧底目标暗杀）
+  /// 模拟机器人夜晚行动（若是卧底，挑选一名存活的非卧底目标）
   static Map<String, String> simulateBotNightActions(GameEngine engine) {
     final actions = <String, String>{};
     final random = Random();
@@ -102,7 +139,6 @@ class MockBots {
 
     for (final p in alivePlayers) {
       if (!p.isBot) continue;
-      // 只有卧底机器人夜间会实施刺杀
       if (p.role == GameRoles.spy) {
         final targets = alivePlayers
             .where((t) => t.id != p.id && t.role != GameRoles.spy)
@@ -116,13 +152,13 @@ class MockBots {
     return actions;
   }
 
-  /// 模拟机器人白板猜词（被公投出局后触发）
+  /// 模拟机器人白板猜词（被投出后触发）
   static Map<String, String>? simulateBotBlankGuess(GameEngine engine, String botId) {
     final bot = engine.players[botId];
     if (bot == null || !bot.isBot || bot.role != GameRoles.blank) return null;
 
     final random = Random();
-    // 机器人白板有 30% 概率猜中词汇逆袭，其余情况放弃或猜偏
+    // 机器人白板有 30% 概率猜中词汇，其余情况猜偏
     if (random.nextInt(10) < 3) {
       return {
         'word_a': engine.wordA,
@@ -130,8 +166,8 @@ class MockBots {
       };
     } else {
       return {
-        'word_a': '推测暗号A',
-        'word_b': '推测暗号B',
+        'word_a': '猜测词A',
+        'word_b': '猜测词B',
       };
     }
   }

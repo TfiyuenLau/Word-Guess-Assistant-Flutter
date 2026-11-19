@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/game_models.dart';
+import '../widgets/avatar_widget.dart';
 
 class PlayerMarkDialog extends StatelessWidget {
   final Player player;
@@ -16,63 +17,135 @@ class PlayerMarkDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     final marks = [
-      {'role': GameRoles.good, 'label': '好人特工', 'icon': Icons.shield, 'color': Colors.blue},
-      {'role': GameRoles.spy, 'label': '潜伏卧底', 'icon': Icons.visibility_off, 'color': Colors.red},
-      {'role': GameRoles.angel, 'label': '双面天使', 'icon': Icons.auto_awesome, 'color': Colors.amber},
-      {'role': GameRoles.blank, 'label': '暗号白板', 'icon': Icons.help_outline, 'color': Colors.purple},
+      (
+        role: GameRoles.good,
+        label: '好人',
+        icon: Icons.shield_outlined,
+        color: isDark ? Colors.blue.shade300 : Colors.blue.shade700,
+      ),
+      (
+        role: GameRoles.spy,
+        label: '卧底',
+        icon: Icons.visibility_off_outlined,
+        color: isDark ? Colors.red.shade300 : Colors.red.shade700,
+      ),
+      (
+        role: GameRoles.angel,
+        label: '天使',
+        icon: Icons.auto_awesome_outlined,
+        color: isDark ? Colors.amber.shade300 : Colors.amber.shade700,
+      ),
+      (
+        role: GameRoles.blank,
+        label: '白板',
+        icon: Icons.help_outline,
+        color: isDark ? Colors.purple.shade300 : Colors.purple.shade700,
+      ),
     ];
+
+    Widget buildTile(({String role, String label, IconData icon, Color color}) m) {
+      final isSelected = currentMark == m.role;
+      return Expanded(
+        child: InkWell(
+          onTap: () {
+            Navigator.of(context).pop();
+            onMarkSelected(m.role);
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            height: 48,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? m.color.withValues(alpha: 0.18)
+                  : theme.colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isSelected
+                    ? m.color
+                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
+                width: isSelected ? 1.5 : 1,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(m.icon, size: 18, color: m.color),
+                const SizedBox(width: 6),
+                Text(
+                  m.label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: isSelected ? m.color : theme.colorScheme.onSurface,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return AlertDialog(
       title: Row(
         children: [
-          CircleAvatar(
-            backgroundColor: theme.colorScheme.secondaryContainer,
-            child: Text(player.name.isNotEmpty ? player.name[0] : '?'),
-          ),
+          AvatarWidget(avatar: player.avatar, size: 40),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '推测标记：${player.name}',
-              style: theme.textTheme.titleMedium,
+              player.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          Tooltip(
+            triggerMode: TooltipTriggerMode.tap,
+            message: '仅本地可见',
+            child: Icon(
+              Icons.info_outline,
+              size: 18,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
         ],
       ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            '仅您自己可见，用于记录盘道推导逻辑：',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+          Row(
+            children: [
+              buildTile(marks[0]),
+              const SizedBox(width: 10),
+              buildTile(marks[1]),
+            ],
           ),
-          const SizedBox(height: 12),
-          ...marks.map((m) {
-            final role = m['role'] as String;
-            final isCurrent = currentMark == role;
-
-            return ListTile(
-              leading: Icon(m['icon'] as IconData, color: m['color'] as Color),
-              title: Text(m['label'] as String),
-              trailing: isCurrent ? const Icon(Icons.check, color: Colors.green) : null,
-              onTap: () {
-                Navigator.of(context).pop();
-                onMarkSelected(role);
-              },
-            );
-          }),
-          if (currentMark != null)
-            ListTile(
-              leading: const Icon(Icons.clear, color: Colors.grey),
-              title: const Text('清除推测标记'),
-              onTap: () {
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              buildTile(marks[2]),
+              const SizedBox(width: 10),
+              buildTile(marks[3]),
+            ],
+          ),
+          if (currentMark != null && currentMark!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () {
                 Navigator.of(context).pop();
                 onMarkSelected('');
               },
+              icon: const Icon(Icons.clear, size: 18),
+              label: const Text('清除标记'),
             ),
+          ],
         ],
       ),
       actions: [

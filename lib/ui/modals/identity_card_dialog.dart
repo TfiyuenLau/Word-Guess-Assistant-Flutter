@@ -20,12 +20,12 @@ class _IdentityCardDialogState extends State<IdentityCardDialog> {
 
     if (idn == null) {
       return AlertDialog(
-        title: const Text('身份未分配'),
-        content: const Text('当前对局尚未启动，请等待房主开局发词。'),
+        title: const Text('身份'),
+        content: const Text('等待房主开始游戏'),
         actions: [
-          TextButton(
+          FilledButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('确定'),
+            child: const Text('关闭'),
           ),
         ],
       );
@@ -33,172 +33,232 @@ class _IdentityCardDialogState extends State<IdentityCardDialog> {
 
     final isAngel = idn.role == GameRoles.angel;
     final isBlank = idn.role == GameRoles.blank;
+    final isSpectator = idn.role == GameRoles.spectator;
+
+    String? roleBadge;
+    IconData? roleIcon;
+    Color? roleColor;
+    if (isAngel) {
+      roleBadge = '天使';
+      roleIcon = Icons.auto_awesome;
+      roleColor = Colors.amber.shade700;
+    } else if (isBlank) {
+      roleBadge = '白板';
+      roleIcon = Icons.visibility_off_outlined;
+      roleColor = Colors.purple;
+    } else if (isSpectator) {
+      roleBadge = '观战';
+      roleIcon = Icons.remove_red_eye_outlined;
+      roleColor = theme.colorScheme.secondary;
+    }
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.security,
-                  color: theme.colorScheme.primary,
-                  size: 28,
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  '特工机密身份档案',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: theme.colorScheme.outlineVariant,
-                ),
-              ),
-              child: Column(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
                 children: [
+                  Icon(
+                    Icons.badge_outlined,
+                    size: 20,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
                   Text(
-                    '对外显示身份',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                    '身份',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Chip(
-                    avatar: Icon(
-                      isAngel
-                          ? Icons.auto_awesome
-                          : isBlank
-                              ? Icons.visibility_off
-                              : Icons.lock,
-                      size: 18,
-                    ),
-                    label: Text(
-                      GameRoles.getRoleLabel(idn.role),
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    backgroundColor: theme.colorScheme.primaryContainer,
-                  ),
-                  const SizedBox(height: 16),
-                  const Divider(),
-                  const SizedBox(height: 8),
-                  Text(
-                    '绝密词语与线索',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  InkWell(
-                    onTap: () {
-                      setState(() {
-                        _isRevealed = !_isRevealed;
-                      });
-                    },
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      width: double.infinity,
+                  const Spacer(),
+                  if (roleBadge != null)
+                    Container(
                       padding: const EdgeInsets.symmetric(
-                        vertical: 20,
-                        horizontal: 16,
+                        horizontal: 10,
+                        vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: _isRevealed
-                            ? theme.colorScheme.primary.withValues(alpha: 0.08)
-                            : theme.colorScheme.surface,
-                        borderRadius: BorderRadius.circular(12),
+                        color: roleColor!.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(999),
                         border: Border.all(
-                          color: _isRevealed
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.outline,
-                          width: _isRevealed ? 2 : 1,
+                          color: roleColor.withValues(alpha: 0.4),
                         ),
                       ),
-                      child: Column(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (!_isRevealed) ...[
-                            Icon(
-                              Icons.touch_app,
+                          Icon(roleIcon, size: 14, color: roleColor),
+                          const SizedBox(width: 4),
+                          Text(
+                            roleBadge,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: roleColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '盲盒词语',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (isSpectator)
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 28),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.remove_red_eye_outlined,
+                        size: 32,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '当前为观战状态',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                InkWell(
+                  onTap: () => setState(() => _isRevealed = !_isRevealed),
+                  borderRadius: BorderRadius.circular(14),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 26,
+                      horizontal: 16,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _isRevealed
+                          ? theme.colorScheme.primary.withValues(alpha: 0.08)
+                          : theme.colorScheme.surfaceContainerHighest
+                              .withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: _isRevealed
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.outlineVariant,
+                        width: _isRevealed ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (!_isRevealed) ...[
+                          Icon(
+                            Icons.visibility_outlined,
+                            color: theme.colorScheme.primary,
+                            size: 30,
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            '点击查看',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ] else ...[
+                          Text(
+                            idn.word.isEmpty ? '无词' : idn.word,
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
                               color: theme.colorScheme.primary,
-                              size: 32,
+                              letterSpacing: 1.5,
                             ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              '点击防偷窥刮开查验',
-                              style: TextStyle(fontWeight: FontWeight.bold),
+                            textAlign: TextAlign.center,
+                          ),
+                          if (idn.hint.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.tertiaryContainer
+                                    .withValues(alpha: 0.7),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '提示：${idn.hint}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: theme.colorScheme.onTertiaryContainer,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '请确保四周无其他特工偷窥',
-                              style: theme.textTheme.bodySmall?.copyWith(
+                          ],
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.visibility_off_outlined,
+                                size: 15,
                                 color: theme.colorScheme.onSurfaceVariant,
                               ),
-                            ),
-                          ] else ...[
-                            Text(
-                              idn.word.isEmpty ? '【无词】' : idn.word,
-                              style: theme.textTheme.headlineMedium?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                color: theme.colorScheme.primary,
-                                letterSpacing: 2,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            if (idn.hint.isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.tertiaryContainer,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  '方向提示: ${idn.hint}',
-                                  style: TextStyle(
-                                    color: theme.colorScheme.onTertiaryContainer,
-                                    fontSize: 13,
-                                  ),
-                                  textAlign: TextAlign.center,
+                              const SizedBox(width: 4),
+                              Text(
+                                '点击隐藏',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
                             ],
-                            const SizedBox(height: 8),
-                            TextButton.icon(
-                              onPressed: () {
-                                setState(() {
-                                  _isRevealed = false;
-                                });
-                              },
-                              icon: const Icon(Icons.visibility_off, size: 16),
-                              label: const Text('隐藏底牌'),
-                            ),
-                          ],
+                          ),
                         ],
-                      ),
+                      ],
                     ),
                   ),
-                ],
+                ),
+              const SizedBox(height: 16),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(46),
+                ),
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('关闭'),
               ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('已知悉，返回博弈'),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

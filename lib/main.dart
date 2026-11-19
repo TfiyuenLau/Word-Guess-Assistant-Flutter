@@ -18,28 +18,28 @@ class WordGuessAssistantApp extends ConsumerWidget {
         ref.read(themeControllerProvider.notifier).getThemeData(themeType);
 
     return MaterialApp(
-      title: '特工猜词助手',
+      title: '猜词助手',
       debugShowCheckedModeBanner: false,
       theme: themeData,
       builder: (context, child) {
-        // 移动端友好比例视口适配：在桌面与宽屏下保持标准智能手机视口比例（480px以内居中），移动设备全屏响应
         return LayoutBuilder(
           builder: (context, constraints) {
-            if (constraints.maxWidth > 560) {
+            if (constraints.maxWidth > 500) {
               return Container(
-                color: const Color(0xFF030712), // 极黑底衬，衬托手机窗体
+                color: const Color(0xFF030712),
                 child: Center(
                   child: Container(
                     constraints: const BoxConstraints(
-                      maxWidth: 440,
+                      maxWidth: 430,
                       maxHeight: 900,
                     ),
                     decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.6),
-                          blurRadius: 32,
-                          spreadRadius: 4,
+                          color: Colors.black.withValues(alpha: 0.5),
+                          blurRadius: 28,
+                          spreadRadius: 2,
                           offset: const Offset(0, 8),
                         ),
                       ],

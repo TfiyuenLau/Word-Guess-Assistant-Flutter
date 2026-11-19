@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/game_models.dart';
+import '../widgets/avatar_widget.dart';
 
 class SettlementDialog extends StatelessWidget {
   final SettlementDetails details;
@@ -14,6 +15,7 @@ class SettlementDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final winnerCamp = details.winnerCamp;
 
     Color bannerColor;
@@ -22,165 +24,211 @@ class SettlementDialog extends StatelessWidget {
 
     switch (winnerCamp) {
       case GameRoles.good:
-        bannerColor = Colors.blue;
-        winnerTitle = '好人阵营 获胜！';
-        winnerIcon = Icons.shield;
+        bannerColor = isDark ? Colors.blue.shade300 : Colors.blue.shade700;
+        winnerTitle = '好人获胜';
+        winnerIcon = Icons.shield_outlined;
         break;
       case GameRoles.spy:
-        bannerColor = Colors.red;
-        winnerTitle = '潜伏卧底 获胜！';
-        winnerIcon = Icons.visibility_off;
+        bannerColor = isDark ? Colors.red.shade300 : Colors.red.shade700;
+        winnerTitle = '卧底获胜';
+        winnerIcon = Icons.visibility_off_outlined;
         break;
       case GameRoles.blank:
-        bannerColor = Colors.purple;
-        winnerTitle = '暗号白板 绝杀逆袭获胜！';
+        bannerColor = isDark ? Colors.purple.shade300 : Colors.purple.shade700;
+        winnerTitle = '白板获胜';
         winnerIcon = Icons.bolt;
         break;
       default:
-        bannerColor = Colors.amber;
-        winnerTitle = '对局结算结束';
-        winnerIcon = Icons.emoji_events;
+        bannerColor = isDark ? Colors.amber.shade300 : Colors.amber.shade700;
+        winnerTitle = '对局结束';
+        winnerIcon = Icons.emoji_events_outlined;
     }
+
+    final goodColor = isDark ? Colors.blue.shade300 : Colors.blue.shade700;
+    final spyColor = isDark ? Colors.red.shade300 : Colors.red.shade700;
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 550, maxHeight: 650),
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-              decoration: BoxDecoration(
-                color: bannerColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: bannerColor, width: 2),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(winnerIcon, color: bannerColor, size: 32),
-                  const SizedBox(width: 12),
-                  Text(
-                    winnerTitle,
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      color: bannerColor,
-                      fontWeight: FontWeight.w900,
-                    ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420, maxHeight: 600),
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                  horizontal: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: bannerColor.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: bannerColor.withValues(alpha: 0.6),
+                    width: 1.5,
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _WordCard(
-                        label: '好人平民词',
-                        word: details.goodWord,
-                        color: Colors.blue,
-                      ),
-                      Container(width: 1, height: 40, color: Colors.grey.shade400),
-                      _WordCard(
-                        label: '潜伏卧底词',
-                        word: details.spyWord,
-                        color: Colors.red,
-                      ),
-                    ],
-                  ),
-                  if (details.hint.isNotEmpty) ...[
-                    const Divider(height: 20),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(winnerIcon, color: bannerColor, size: 26),
+                    const SizedBox(width: 8),
                     Text(
-                      '白板方向提示：${details.hint}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontStyle: FontStyle.italic,
+                      winnerTitle,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        color: bannerColor,
+                        fontWeight: FontWeight.w800,
                       ),
-                      textAlign: TextAlign.center,
                     ),
                   ],
-                ],
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '特工真实身份与底牌揭晓',
-              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: ListView.separated(
-                itemCount: details.playerReveals.length,
-                separatorBuilder: (_, _) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final reveal = details.playerReveals[index];
-                  return ListTile(
-                    dense: true,
-                    leading: CircleAvatar(
-                      backgroundColor: reveal.isAlive
-                          ? theme.colorScheme.primaryContainer
-                          : Colors.grey.shade400,
-                      child: Text(
-                        reveal.name.isNotEmpty ? reveal.name[0] : '?',
-                        style: TextStyle(
-                          color: reveal.isAlive
-                              ? theme.colorScheme.onPrimaryContainer
-                              : Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    title: Row(
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    Row(
                       children: [
-                        Text(
-                          reveal.name,
-                          style: TextStyle(
-                            decoration: reveal.isAlive ? null : TextDecoration.lineThrough,
-                            fontWeight: FontWeight.bold,
+                        Expanded(
+                          child: _WordCard(
+                            label: '好人词',
+                            word: details.goodWord,
+                            color: goodColor,
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        _RoleChip(role: reveal.role),
+                        Container(
+                          width: 1,
+                          height: 36,
+                          color: theme.colorScheme.outlineVariant,
+                        ),
+                        Expanded(
+                          child: _WordCard(
+                            label: '卧底词',
+                            word: details.spyWord,
+                            color: spyColor,
+                          ),
+                        ),
                       ],
                     ),
-                    subtitle: Text(
-                      '词语：${reveal.word.isNotEmpty ? reveal.word : '无词'}',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    trailing: Chip(
-                      label: Text(
-                        reveal.isAlive ? '存活' : '出局',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: reveal.isAlive ? Colors.green.shade800 : Colors.red.shade800,
+                    if (details.hint.isNotEmpty) ...[
+                      const Divider(height: 16),
+                      Text(
+                        '提示：${details.hint}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
+                        textAlign: TextAlign.center,
                       ),
-                      backgroundColor: reveal.isAlive
-                          ? Colors.green.shade100
-                          : Colors.red.shade100,
-                      padding: EdgeInsets.zero,
-                    ),
-                  );
-                },
+                    ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                onDismiss();
-              },
-              child: const Text('查看完毕'),
-            ),
-          ],
+              const SizedBox(height: 12),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: details.playerReveals.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final reveal = details.playerReveals[index];
+                    final statusColor = reveal.isAlive
+                        ? (isDark ? Colors.green.shade300 : Colors.green.shade700)
+                        : (isDark ? Colors.red.shade300 : Colors.red.shade700);
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        children: [
+                          Opacity(
+                            opacity: reveal.isAlive ? 1.0 : 0.45,
+                            child: AvatarWidget(
+                              avatar: reveal.avatar,
+                              size: 34,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        reveal.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 13,
+                                          decoration: reveal.isAlive
+                                              ? null
+                                              : TextDecoration.lineThrough,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    _RoleChip(role: reveal.role),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  reveal.word.isNotEmpty ? reveal.word : '无词',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusColor.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              reveal.isAlive ? '存活' : 'OUT',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: statusColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(46),
+                ),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  onDismiss();
+                },
+                child: const Text('关闭'),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -204,14 +252,20 @@ class _WordCard extends StatelessWidget {
       children: [
         Text(
           label,
-          style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            fontSize: 11,
+            color: color,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           word,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w900,
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
             color: color,
           ),
         ),
@@ -227,41 +281,45 @@ class _RoleChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Color bg;
-    Color fg;
-    String label = GameRoles.getRoleLabel(role);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    Color color;
+    String label;
 
     switch (role) {
       case GameRoles.good:
-        bg = Colors.blue.shade100;
-        fg = Colors.blue.shade900;
+        color = isDark ? Colors.blue.shade300 : Colors.blue.shade700;
+        label = '好人';
         break;
       case GameRoles.spy:
-        bg = Colors.red.shade100;
-        fg = Colors.red.shade900;
+        color = isDark ? Colors.red.shade300 : Colors.red.shade700;
+        label = '卧底';
         break;
       case GameRoles.angel:
-        bg = Colors.amber.shade100;
-        fg = Colors.amber.shade900;
+        color = isDark ? Colors.amber.shade300 : Colors.amber.shade700;
+        label = '天使';
         break;
       case GameRoles.blank:
-        bg = Colors.purple.shade100;
-        fg = Colors.purple.shade900;
+        color = isDark ? Colors.purple.shade300 : Colors.purple.shade700;
+        label = '白板';
         break;
       default:
-        bg = Colors.grey.shade200;
-        fg = Colors.black87;
+        color = isDark ? Colors.grey.shade300 : Colors.grey.shade700;
+        label = GameRoles.getRoleLabel(role);
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
       decoration: BoxDecoration(
-        color: bg,
+        color: color.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         label,
-        style: TextStyle(fontSize: 11, color: fg, fontWeight: FontWeight.bold),
+        style: TextStyle(
+          fontSize: 10,
+          color: color,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }

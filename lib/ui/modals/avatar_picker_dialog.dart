@@ -20,13 +20,24 @@ class _AvatarPickerDialogState extends State<AvatarPickerDialog>
   late TabController _tabController;
   late String _selectedAvatar;
 
-  final _categories = ['特工角色', '萌系动物', '赛博朋克'];
+  static const _tabs = [
+    (label: '角色', category: '特工角色'),
+    (label: '动物', category: '萌系动物'),
+    (label: '赛博', category: '赛博朋克'),
+  ];
 
   @override
   void initState() {
     super.initState();
     _selectedAvatar = widget.currentAvatar;
-    _tabController = TabController(length: _categories.length, vsync: this);
+    final currentPath = normalizeAvatarPath(widget.currentAvatar);
+    final matchIndex = _tabs.indexWhere((t) => kBuiltinAvatars
+        .any((a) => a.category == t.category && a.assetPath == currentPath));
+    _tabController = TabController(
+      length: _tabs.length,
+      initialIndex: matchIndex >= 0 ? matchIndex : 0,
+      vsync: this,
+    );
   }
 
   @override
@@ -42,77 +53,62 @@ class _AvatarPickerDialogState extends State<AvatarPickerDialog>
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 440, maxHeight: 560),
+        constraints: const BoxConstraints(maxWidth: 400, maxHeight: 480),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // 顶部标题与当前选中形象预览
               Row(
                 children: [
                   AvatarWidget(
                     avatar: _selectedAvatar,
-                    size: 52,
+                    size: 40,
                     showBorder: true,
                     borderColor: theme.colorScheme.primary,
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '选择特工机密形象',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          '点击下方形象进行切换',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      '选择头像',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close),
+                    icon: const Icon(Icons.close, size: 20),
+                    visualDensity: VisualDensity.compact,
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-
-              // 分类 Tab
+              const SizedBox(height: 8),
               TabBar(
                 controller: _tabController,
                 indicatorSize: TabBarIndicatorSize.tab,
                 labelColor: theme.colorScheme.primary,
                 unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
-                tabs: _categories.map((c) => Tab(text: c)).toList(),
+                tabs: _tabs.map((t) => Tab(text: t.label)).toList(),
               ),
               const SizedBox(height: 12),
-
-              // 头像网格内容
               Expanded(
                 child: TabBarView(
                   controller: _tabController,
-                  children: _categories.map((cat) {
+                  children: _tabs.map((tab) {
                     final items = kBuiltinAvatars
-                        .where((item) => item.category == cat)
+                        .where((item) => item.category == tab.category)
                         .toList();
 
                     return GridView.builder(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      padding: const EdgeInsets.symmetric(vertical: 4),
                       gridDelegate:
                           const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 3,
-                        mainAxisSpacing: 12,
-                        crossAxisSpacing: 12,
-                        childAspectRatio: 0.9,
+                        mainAxisSpacing: 10,
+                        crossAxisSpacing: 10,
+                        childAspectRatio: 0.78,
                       ),
                       itemCount: items.length,
                       itemBuilder: (context, index) {
@@ -127,7 +123,7 @@ class _AvatarPickerDialogState extends State<AvatarPickerDialog>
                               _selectedAvatar = item.id;
                             });
                           },
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(14),
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 150),
                             decoration: BoxDecoration(
@@ -136,7 +132,7 @@ class _AvatarPickerDialogState extends State<AvatarPickerDialog>
                                       .withValues(alpha: 0.4)
                                   : theme.colorScheme.surfaceContainerHighest
                                       .withValues(alpha: 0.25),
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(14),
                               border: Border.all(
                                 color: isSelected
                                     ? theme.colorScheme.primary
@@ -144,7 +140,7 @@ class _AvatarPickerDialogState extends State<AvatarPickerDialog>
                                 width: 2,
                               ),
                             ),
-                            padding: const EdgeInsets.all(8),
+                            padding: const EdgeInsets.all(6),
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -153,34 +149,34 @@ class _AvatarPickerDialogState extends State<AvatarPickerDialog>
                                   children: [
                                     AvatarWidget(
                                       avatar: item.assetPath,
-                                      size: 56,
+                                      size: 48,
                                     ),
                                     if (isSelected)
                                       Positioned(
-                                        right: -4,
-                                        bottom: -4,
+                                        right: -2,
+                                        bottom: -2,
                                         child: CircleAvatar(
-                                          radius: 10,
+                                          radius: 9,
                                           backgroundColor:
                                               theme.colorScheme.primary,
                                           child: const Icon(
                                             Icons.check,
-                                            size: 14,
+                                            size: 12,
                                             color: Colors.white,
                                           ),
                                         ),
                                       ),
                                   ],
                                 ),
-                                const SizedBox(height: 6),
+                                const SizedBox(height: 4),
                                 Text(
                                   item.name,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    fontSize: 12,
+                                    fontSize: 11,
                                     fontWeight: isSelected
-                                        ? FontWeight.bold
+                                        ? FontWeight.w600
                                         : FontWeight.normal,
                                     color: isSelected
                                         ? theme.colorScheme.primary
@@ -196,17 +192,16 @@ class _AvatarPickerDialogState extends State<AvatarPickerDialog>
                   }).toList(),
                 ),
               ),
-
-              const SizedBox(height: 8),
-
-              // 底部确认按钮
-              FilledButton.icon(
-                icon: const Icon(Icons.check),
-                label: const Text('确认使用此形象'),
+              const SizedBox(height: 12),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(46),
+                ),
                 onPressed: () {
                   widget.onAvatarSelected(_selectedAvatar);
                   Navigator.of(context).pop();
                 },
+                child: const Text('确定'),
               ),
             ],
           ),

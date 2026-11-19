@@ -128,11 +128,19 @@ String normalizeAvatarPath(String raw) {
   return clean;
 }
 
+const ColorFilter _kOutGrayscaleFilter = ColorFilter.matrix(<double>[
+  0.2126, 0.7152, 0.0722, 0, 0,
+  0.2126, 0.7152, 0.0722, 0, 0,
+  0.2126, 0.7152, 0.0722, 0, 0,
+  0,      0,      0,      1, 0,
+]);
+
 class AvatarWidget extends StatelessWidget {
   final String avatar;
   final double size;
   final bool showBorder;
   final Color? borderColor;
+  final bool isOut;
 
   const AvatarWidget({
     super.key,
@@ -140,6 +148,7 @@ class AvatarWidget extends StatelessWidget {
     this.size = 48,
     this.showBorder = false,
     this.borderColor,
+    this.isOut = false,
   });
 
   @override
@@ -147,7 +156,7 @@ class AvatarWidget extends StatelessWidget {
     final theme = Theme.of(context);
     final assetPath = normalizeAvatarPath(avatar);
 
-    return Container(
+    Widget avatarCircle = Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
@@ -174,6 +183,55 @@ class AvatarWidget extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+
+    if (!isOut) {
+      return avatarCircle;
+    }
+
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Opacity(
+            opacity: 0.45,
+            child: ColorFiltered(
+              colorFilter: _kOutGrayscaleFilter,
+              child: avatarCircle,
+            ),
+          ),
+          Positioned(
+            bottom: -2,
+            right: -3,
+            child: Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: size >= 36 ? 4 : 3,
+                vertical: 1.5,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.red.shade700,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: theme.colorScheme.surface,
+                  width: 1,
+                ),
+              ),
+              child: Text(
+                'OUT',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: size >= 36 ? 8 : 7,
+                  fontWeight: FontWeight.w800,
+                  height: 1.0,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

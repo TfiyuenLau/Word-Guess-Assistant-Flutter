@@ -183,19 +183,69 @@ void main() {
       expect(engine.players[good.id]!.isAlive, isFalse);
       expect(engine.nightCasualties.contains(good.id), isTrue);
 
-      // 2. 好人以为自己是卧底盲动刀卧底：好人自爆出局，反噬自身
+      // 2. 好人/天使以为自己是卧底盲动刀卧底：自身出局，但私密反馈保持中立不提前泄密
       final angel = engine.players.values.firstWhere((p) => p.role == GameRoles.angel);
       final misfireAct = engine.submitNightAction(angel.id, spy.id);
       expect(misfireAct.success, isTrue);
-      expect(misfireAct.feedback.contains('自爆'), isTrue);
+      expect(misfireAct.feedback, '已记录夜间行动。');
+      expect(misfireAct.feedback.contains('自爆'), isFalse);
       expect(engine.players[angel.id]!.isAlive, isFalse);
       expect(engine.nightCasualties.contains(angel.id), isTrue);
 
-      // 3. 推进出黑夜：战报统一客观播报伤亡，绝不泄露死因
+      // 2b. 单次夜间行动锁：同夜同一玩家不可重复行动
+      final dupSpyAct = engine.submitNightAction(spy.id, spy.id);
+      expect(dupSpyAct.success, isFalse);
+
+      // 3. 推进出黑夜：天亮统一客观播报伤亡，绝不泄露死因
       final nightAdv = engine.advancePhase();
-      expect(nightAdv.announcement.contains('【夜间战报】'), isTrue);
+      expect(nightAdv.announcement.contains('天亮了，昨夜'), isTrue);
+      expect(nightAdv.announcement.contains('出局'), isTrue);
       expect(nightAdv.announcement.contains(good.name), isTrue);
       expect(nightAdv.announcement.contains(angel.name), isTrue);
+      expect(nightAdv.announcement.contains('自爆'), isFalse);
+      expect(nightAdv.announcement.contains('刺杀'), isFalse);
+    });
+
+    test('平安夜天亮播报与好人仅在卧底和白板均出局时获胜', () {
+      final engine = GameEngine();
+      for (var i = 1; i <= 5; i++) {
+        engine.addPlayer(Player(id: 'p$i', name: '玩家$i', avatar: 'characters/detective.svg'));
+      }
+      engine.startGame();
+
+      // 无人夜间行动 -> 平安夜
+      engine.phase = GamePhase.nightAction;
+      final calmDawn = engine.advancePhase();
+      expect(calmDawn.phase, GamePhase.description);
+      expect(calmDawn.announcement.contains('天亮了，昨夜是平安夜。'), isTrue);
+      expect(engine.round, 2);
+
+      // 淘汰所有卧底，但白板仍存活 -> 对局不得结束
+      for (final p in engine.players.values.where((p) => p.role == GameRoles.spy).toList()) {
+        engine.players[p.id] = p.copyWith(isAlive: false);
+      }
+      expect(engine.checkWinner(), isNull);
+
+      // 再淘汰白板 -> 好人获胜
+      final blank = engine.players.values.firstWhere((p) => p.role == GameRoles.blank);
+      engine.players[blank.id] = blank.copyWith(isAlive: false);
+      expect(engine.checkWinner(), GameRoles.good);
+    });
+
+    test('单次投票锁：同一轮不可重复投票或改票', () {
+      final engine = GameEngine();
+      for (var i = 1; i <= 4; i++) {
+        engine.addPlayer(Player(id: 'p$i', name: '玩家$i', avatar: 'characters/detective.svg'));
+      }
+      engine.startGame();
+      engine.advancePhase(); // voting
+
+      final first = engine.submitVote('p1', 'p2');
+      expect(first.success, isTrue);
+
+      final second = engine.submitVote('p1', 'p3');
+      expect(second.success, isFalse);
+      expect(engine.votes['p1'], 'p2');
     });
 
     test('胜负判定：卧底击杀好人后人数占优胜出', () {

@@ -16,17 +16,17 @@ extension GamePhaseExt on GamePhase {
   String get label {
     switch (this) {
       case GamePhase.preparing:
-        return '准备阶段';
+        return '准备中';
       case GamePhase.description:
-        return '描述发言';
+        return '描述';
       case GamePhase.voting:
-        return '公投表决';
+        return '投票';
       case GamePhase.nightAction:
-        return '黑夜行动';
+        return '夜晚';
       case GamePhase.settlement:
-        return '战报结算';
+        return '结算';
       case GamePhase.blankGuess:
-        return '白板逆袭';
+        return '白板猜词';
     }
   }
 
@@ -50,19 +50,19 @@ class GameRoles {
   static String getRoleLabel(String? role) {
     switch (role) {
       case good:
-        return '好人特工';
+        return '好人';
       case spy:
-        return '潜伏卧底';
+        return '卧底';
       case angel:
-        return '双面天使';
+        return '天使';
       case blank:
-        return '暗号白板';
+        return '白板';
       case agent:
-        return '特工';
+        return '玩家';
       case spectator:
-        return '观战者';
+        return '观战';
       default:
-        return '未确认';
+        return '未知';
     }
   }
 }
@@ -96,22 +96,26 @@ class Player {
     String? name,
     String? avatar,
     String? role,
+    bool clearRole = false,
     String? word,
+    bool clearWord = false,
     String? hint,
+    bool clearHint = false,
     bool? isAlive,
     bool? isBot,
     String? mark,
+    bool clearMark = false,
   }) {
     return Player(
       id: id ?? this.id,
       name: name ?? this.name,
       avatar: avatar ?? this.avatar,
-      role: role ?? this.role,
-      word: word ?? this.word,
-      hint: hint ?? this.hint,
+      role: clearRole ? null : (role ?? this.role),
+      word: clearWord ? null : (word ?? this.word),
+      hint: clearHint ? null : (hint ?? this.hint),
       isAlive: isAlive ?? this.isAlive,
       isBot: isBot ?? this.isBot,
-      mark: mark ?? this.mark,
+      mark: clearMark ? null : (mark ?? this.mark),
     );
   }
 
@@ -132,8 +136,8 @@ class Player {
   factory Player.fromMap(Map<String, dynamic> map) {
     return Player(
       id: map['id']?.toString() ?? '',
-      name: map['name']?.toString() ?? '特工',
-      avatar: map['avatar']?.toString() ?? 'agent',
+      name: map['name']?.toString() ?? '玩家',
+      avatar: map['avatar']?.toString() ?? 'characters/detective.svg',
       role: map['role']?.toString(),
       word: map['word']?.toString(),
       hint: map['hint']?.toString(),
@@ -304,7 +308,7 @@ class DiscoveredRoom {
     return DiscoveredRoom(
       roomId: map['room_id']?.toString() ?? '',
       hostName: map['host_name']?.toString() ?? '房主',
-      hostAvatar: map['host_avatar']?.toString() ?? 'agent',
+      hostAvatar: map['host_avatar']?.toString() ?? 'characters/detective.svg',
       ip: ip,
       port: (map['port'] as num?)?.toInt() ?? 8888,
       playerCount: (map['player_count'] as num?)?.toInt() ?? 1,

@@ -3,18 +3,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum AppThemeType {
-  night, // 暗夜特工 (默认)
-  cyberpunk, // 赛博霓虹
-  ocean, // 深海潜行
-  forest, // 森林隐蔽
-  crimson, // 赤红警报
-  light, // 极简明亮
+  light,
+  night,
+  cyberpunk,
+  ocean,
+  forest,
+  crimson,
 }
 
 class AppThemeOption {
   final AppThemeType type;
   final String label;
-  final String subtitle;
   final Color primaryColor;
   final Color backgroundColor;
   final bool isDark;
@@ -22,7 +21,6 @@ class AppThemeOption {
   const AppThemeOption({
     required this.type,
     required this.label,
-    required this.subtitle,
     required this.primaryColor,
     required this.backgroundColor,
     this.isDark = true,
@@ -32,53 +30,48 @@ class AppThemeOption {
 const List<AppThemeOption> kThemeOptions = [
   AppThemeOption(
     type: AppThemeType.night,
-    label: '暗夜特工',
-    subtitle: '深邃夜蓝，经典潜行沉浸体验',
+    label: '暗夜',
     primaryColor: Color(0xFF38BDF8),
     backgroundColor: Color(0xFF0F172A),
     isDark: true,
   ),
   AppThemeOption(
     type: AppThemeType.cyberpunk,
-    label: '赛博霓虹',
-    subtitle: '高对比度霓虹紫金，黑客科技感',
+    label: '赛博',
     primaryColor: Color(0xFF00F0FF),
     backgroundColor: Color(0xFF130924),
     isDark: true,
   ),
   AppThemeOption(
     type: AppThemeType.ocean,
-    label: '深海潜行',
-    subtitle: '深洋蔚蓝，冷静克制与信息穿透',
-    primaryColor: Color(0xFF00D2FF),
+    label: '深海',
+    primaryColor: Color(0xFF0EA5E9),
     backgroundColor: Color(0xFF07192F),
     isDark: true,
   ),
   AppThemeOption(
     type: AppThemeType.forest,
-    label: '森林隐蔽',
-    subtitle: '战术墨绿，隐秘丛林作战风格',
+    label: '森林',
     primaryColor: Color(0xFF10B981),
     backgroundColor: Color(0xFF061A14),
     isDark: true,
   ),
   AppThemeOption(
-    type: AppThemeType.crimson,
-    label: '赤红警报',
-    subtitle: '警戒深红，紧张刺激博弈心跳',
-    primaryColor: Color(0xFFEF4444),
-    backgroundColor: Color(0xFF180A0A),
-    isDark: true,
-  ),
-  AppThemeOption(
     type: AppThemeType.light,
-    label: '极简浅色',
-    subtitle: '清爽白净，明亮日光阅读模式',
+    label: '浅色',
     primaryColor: Color(0xFF2563EB),
     backgroundColor: Color(0xFFF8FAFC),
     isDark: false,
   ),
 ];
+
+const AppThemeOption _crimsonFallback = AppThemeOption(
+  type: AppThemeType.crimson,
+  label: '赤红',
+  primaryColor: Color(0xFFEF4444),
+  backgroundColor: Color(0xFF180A0A),
+  isDark: true,
+);
 
 class ThemeNotifier extends StateNotifier<AppThemeType> {
   static const _prefKey = 'wga_app_theme';
@@ -106,48 +99,69 @@ class ThemeNotifier extends StateNotifier<AppThemeType> {
   }
 
   ThemeData getThemeData(AppThemeType type) {
-    final opt = kThemeOptions.firstWhere((o) => o.type == type);
+    final opt = type == AppThemeType.crimson
+        ? _crimsonFallback
+        : kThemeOptions.firstWhere(
+            (o) => o.type == type,
+            orElse: () => kThemeOptions.first,
+          );
 
     if (!opt.isDark) {
+      final scheme = ColorScheme.fromSeed(
+        seedColor: opt.primaryColor,
+        brightness: Brightness.light,
+        surface: Colors.white,
+      );
       return ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
         scaffoldBackgroundColor: opt.backgroundColor,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: opt.primaryColor,
-          brightness: Brightness.light,
-          surface: Colors.white,
-        ),
-        appBarTheme: AppBarTheme(
+        colorScheme: scheme,
+        appBarTheme: const AppBarTheme(
           centerTitle: false,
           elevation: 0,
           backgroundColor: Colors.white,
-          foregroundColor: const Color(0xFF0F172A),
+          foregroundColor: Color(0xFF0F172A),
           surfaceTintColor: Colors.transparent,
         ),
         cardTheme: CardThemeData(
           color: Colors.white,
-          elevation: 1,
+          elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
             side: const BorderSide(color: Color(0xFFE2E8F0)),
           ),
         ),
+        inputDecorationTheme: InputDecorationTheme(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          filled: true,
+          fillColor: const Color(0xFFF8FAFC),
+        ),
+        dialogTheme: DialogThemeData(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+        ),
       );
     }
+
+    final surfaceColor = Color.alphaBlend(
+      opt.primaryColor.withValues(alpha: 0.05),
+      opt.backgroundColor,
+    );
+    final scheme = ColorScheme.fromSeed(
+      seedColor: opt.primaryColor,
+      brightness: Brightness.dark,
+      surface: surfaceColor,
+    );
 
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
       scaffoldBackgroundColor: opt.backgroundColor,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: opt.primaryColor,
-        brightness: Brightness.dark,
-        surface: Color.alphaBlend(
-          opt.primaryColor.withValues(alpha: 0.05),
-          opt.backgroundColor,
-        ),
-      ),
+      colorScheme: scheme,
       appBarTheme: AppBarTheme(
         centerTitle: false,
         elevation: 0,
@@ -160,12 +174,24 @@ class ThemeNotifier extends StateNotifier<AppThemeType> {
           opt.primaryColor.withValues(alpha: 0.08),
           const Color(0xFF1E293B),
         ),
-        elevation: 2,
+        elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
           side: BorderSide(
-            color: opt.primaryColor.withValues(alpha: 0.2),
+            color: opt.primaryColor.withValues(alpha: 0.18),
           ),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: 0.04),
+      ),
+      dialogTheme: DialogThemeData(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
         ),
       ),
     );
