@@ -10,6 +10,7 @@ import 'package:word_guess_assistant_flutter/main.dart';
 import 'package:word_guess_assistant_flutter/models/game_models.dart';
 import 'package:word_guess_assistant_flutter/models/protocol_messages.dart';
 import 'package:word_guess_assistant_flutter/models/word_bank.dart';
+import 'package:word_guess_assistant_flutter/services/llm_word_service.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/avatar_picker_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/blank_guess_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/host_console_dialog.dart';
@@ -724,5 +725,71 @@ void main() {
       expect(submittedTheme, '太空探索');
       expect(find.byType(HostConsoleDialog), findsNothing);
     });
+
+    testWidgets('Host starting game from RoomScreen closes HostConsoleDialog cleanly without trapping behind PhaseNoticeDialog', (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final preparingState = _sampleRoomState(
+        isHost: true,
+        phase: GamePhase.preparing,
+      );
+      final ctrl = _StartGameTransitionController(preparingState);
+      final lightTheme = ThemeNotifier().getThemeData(AppThemeType.light);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [gameControllerProvider.overrideWith((_) => ctrl)],
+          child: MaterialApp(theme: lightTheme, home: const RoomScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Open HostConsoleDialog via Host FAB
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(HostConsoleDialog), findsOneWidget);
+
+      // Tap 开始游戏: controller transitions to GamePhase.description & bumps phaseNoticeSeq
+      await tester.tap(find.text('开始游戏'));
+      await tester.pumpAndSettle();
+
+      // HostConsoleDialog must be completely gone (never stuck on "下一阶段" with disabled 关闭)
+      expect(find.byType(HostConsoleDialog), findsNothing);
+      expect(find.text('下一阶段'), findsNothing);
+
+      // PhaseNoticeDialog is shown on top; tapping 确定 leaves user free to speak
+      expect(find.byType(PhaseNoticeDialog), findsOneWidget);
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PhaseNoticeDialog), findsNothing);
+      expect(find.byType(HostConsoleDialog), findsNothing);
+      expect(find.byType(TextField), findsOneWidget);
+    });
   });
+}
+
+class _StartGameTransitionController extends _TestGameController {
+  _StartGameTransitionController(super.initial);
+
+  @override
+  Future<String?> startGame({
+    WordSourceMode sourceMode = WordSourceMode.localJson,
+    String theme = WordBank.randomCategory,
+    String similarity = WordBank.randomSimilarity,
+    LlmSettings? llmSettings,
+    LlmWordService? llmService,
+  }) async {
+    state = state.copyWith(
+      currentPhase: GamePhase.description,
+      currentRound: 1,
+      phaseNoticeSeq: state.phaseNoticeSeq + 1,
+      phaseNoticeTitle: '第 1 轮 · 描述',
+      phaseNoticeBody: '游戏开始，第 1 轮描述开始，请存活玩家描述自己的词语。',
+    );
+    return null;
+  }
 }

@@ -119,13 +119,22 @@ class _HostConsoleDialogState extends State<HostConsoleDialog> {
       _selectedSimilarity,
     );
     if (!mounted) return;
-    if (error == null) {
-      Navigator.of(context).pop();
-    } else {
-      setState(() {
-        _isStarting = false;
+    setState(() {
+      _isStarting = false;
+      if (error != null) {
         _startError = error;
-      });
+      }
+    });
+    if (error == null) {
+      // onStartGame 会同步触发 PhaseNoticeDialog 压入导航栈顶，不能盲目 pop 栈顶，
+      // 必须精确移除当前房主控制台所在的 DialogRoute。
+      final route = ModalRoute.of(context);
+      final navigator = Navigator.of(context);
+      if (route != null && route.isCurrent) {
+        navigator.pop();
+      } else if (route != null && route.isActive) {
+        navigator.removeRoute(route);
+      }
     }
   }
 
