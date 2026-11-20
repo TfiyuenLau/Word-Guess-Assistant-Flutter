@@ -15,16 +15,21 @@ class WebRtcP2PTransport implements GameTransport {
 
   P2PSignaling? _signaling;
 
-  // 房主端：维护每个特工客户端的连接与数据通道
+  // 房主端：维护每个玩家客户端的连接、数据通道与远端 ICE 缓冲
   final Map<String, RTCPeerConnection> _peerConnections = {};
   final Map<String, RTCDataChannel> _dataChannels = {};
+  final Map<String, List<RTCIceCandidate>> _pendingPeerCandidates = {};
+  final Set<String> _peerRemoteDescSet = {};
 
-  // 客户端端：指向房主的单条连接与数据通道
+  // 客户端端：指向房主的单条连接、数据通道与远端 ICE 缓冲
   RTCPeerConnection? _hostConnection;
   RTCDataChannel? _hostChannel;
   String? _hostId;
   String? _selfPlayerName;
   String? _selfAvatar;
+  final List<RTCIceCandidate> _pendingHostCandidates = [];
+  bool _hostRemoteDescSet = false;
+  Timer? _joinRetryTimer;
 
   final StreamController<GameMessage> _messageController =
       StreamController<GameMessage>.broadcast();
@@ -94,6 +99,8 @@ class WebRtcP2PTransport implements GameTransport {
     _roomId = roomId;
     _selfPlayerName = playerName;
     _selfAvatar = avatar;
+    _pendingHostCandidates.clear();
+    _hostRemoteDescSet = false;
 
     _signaling = P2PSignaling(
       roomCode: roomId,
@@ -102,9 +109,14 @@ class WebRtcP2PTransport implements GameTransport {
     );
 
     final joinCompleter = Completer<void>();
+    var offerReceived = false;
 
     await _signaling!.init(
       onOffer: (data) async {
+        if (offerReceived) return;
+        offerReceived = true;
+        _joinRetryTimer?.cancel();
+        _joinRetryTimer = null;
         try {
           await _handleHostOffer(data, playerName, avatar);
           if (!joinCompleter.isCompleted) {
@@ -119,19 +131,35 @@ class WebRtcP2PTransport implements GameTransport {
       onIce: (data) => _handleRemoteIce(data),
     );
 
-    // 发送信令 Join 请求
+    // 发送信令 Join 请求并每 2 秒重试直至收到 Offer 或连接/超时
     _signaling!.sendJoin(playerName, avatar);
+    _joinRetryTimer?.cancel();
+    _joinRetryTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      if (_isConnected || offerReceived || _signaling == null) {
+        timer.cancel();
+        if (identical(_joinRetryTimer, timer)) {
+          _joinRetryTimer = null;
+        }
+        return;
+      }
+      _signaling?.sendJoin(playerName, avatar);
+    });
 
     // 10 秒超时等待连接建立
-    return joinCompleter.future.timeout(
-      const Duration(seconds: 10),
-      onTimeout: () {
-        if (!_isConnected) {
-          disconnect();
-          throw TimeoutException('P2P 房间加入超时，请确认房间号是否正确');
-        }
-      },
-    );
+    try {
+      return await joinCompleter.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          if (!_isConnected) {
+            disconnect();
+            throw TimeoutException('P2P 房间加入超时，请确认房间号是否正确');
+          }
+        },
+      );
+    } finally {
+      _joinRetryTimer?.cancel();
+      _joinRetryTimer = null;
+    }
   }
 
   // --- 房主端处理流程 ---
@@ -141,10 +169,15 @@ class WebRtcP2PTransport implements GameTransport {
     if (clientId == null || clientId.isEmpty) return;
 
     try {
+      _peerRemoteDescSet.remove(clientId);
+      _pendingPeerCandidates.remove(clientId);
+      await _dataChannels.remove(clientId)?.close();
+      await _peerConnections.remove(clientId)?.close();
+
       final pc = await createPeerConnection(_rtcConfig);
       _peerConnections[clientId] = pc;
 
-      // 监听 ICE 候选发送给特工客户端
+      // 监听 ICE 候选发送给玩家客户端
       pc.onIceCandidate = (candidate) {
         _signaling?.sendIce(
           targetId: clientId,
@@ -192,6 +225,16 @@ class WebRtcP2PTransport implements GameTransport {
         sdpMap['type']?.toString(),
       );
       await pc.setRemoteDescription(desc);
+      _peerRemoteDescSet.add(clientId);
+
+      final pending = _pendingPeerCandidates.remove(clientId);
+      if (pending != null) {
+        for (final candidate in pending) {
+          try {
+            await pc.addCandidate(candidate);
+          } catch (_) {}
+        }
+      }
     }
   }
 
@@ -207,6 +250,7 @@ class WebRtcP2PTransport implements GameTransport {
     if (hostId == null || sdpMap == null) return;
 
     _hostId = hostId;
+    _hostRemoteDescSet = false;
     final pc = await createPeerConnection(_rtcConfig);
     _hostConnection = pc;
 
@@ -231,6 +275,17 @@ class WebRtcP2PTransport implements GameTransport {
       sdpMap['type']?.toString(),
     );
     await pc.setRemoteDescription(offerDesc);
+    _hostRemoteDescSet = true;
+
+    if (_pendingHostCandidates.isNotEmpty) {
+      final pending = List<RTCIceCandidate>.of(_pendingHostCandidates);
+      _pendingHostCandidates.clear();
+      for (final candidate in pending) {
+        try {
+          await pc.addCandidate(candidate);
+        } catch (_) {}
+      }
+    }
 
     final answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
@@ -253,11 +308,23 @@ class WebRtcP2PTransport implements GameTransport {
     );
 
     if (_isHost) {
-      if (fromId != null && _peerConnections.containsKey(fromId)) {
-        await _peerConnections[fromId]?.addCandidate(candidate);
+      if (fromId == null || fromId.isEmpty) return;
+      final pc = _peerConnections[fromId];
+      if (_peerRemoteDescSet.contains(fromId) && pc != null) {
+        try {
+          await pc.addCandidate(candidate);
+        } catch (_) {}
+      } else {
+        _pendingPeerCandidates.putIfAbsent(fromId, () => []).add(candidate);
       }
     } else {
-      await _hostConnection?.addCandidate(candidate);
+      if (_hostRemoteDescSet && _hostConnection != null) {
+        try {
+          await _hostConnection!.addCandidate(candidate);
+        } catch (_) {}
+      } else {
+        _pendingHostCandidates.add(candidate);
+      }
     }
   }
 
@@ -271,8 +338,8 @@ class WebRtcP2PTransport implements GameTransport {
           // 连接建立后主动发送 joinReq
           sendToHost(GameMessage.join(
             playerId: selfId,
-            playerName: _selfPlayerName ?? '特工',
-            avatar: _selfAvatar ?? 'agent_1',
+            playerName: _selfPlayerName ?? '玩家',
+            avatar: _selfAvatar ?? 'characters/detective.svg',
           ));
         }
       } else if (state == RTCDataChannelState.RTCDataChannelClosed) {
@@ -297,6 +364,8 @@ class WebRtcP2PTransport implements GameTransport {
   }
 
   void _removePeer(String peerId) {
+    _pendingPeerCandidates.remove(peerId);
+    _peerRemoteDescSet.remove(peerId);
     _peerConnections[peerId]?.close();
     _peerConnections.remove(peerId);
     _dataChannels[peerId]?.close();
@@ -333,6 +402,13 @@ class WebRtcP2PTransport implements GameTransport {
   @override
   Future<void> disconnect() async {
     _isConnected = false;
+    _joinRetryTimer?.cancel();
+    _joinRetryTimer = null;
+    _pendingPeerCandidates.clear();
+    _peerRemoteDescSet.clear();
+    _pendingHostCandidates.clear();
+    _hostRemoteDescSet = false;
+
     _signaling?.disconnect();
     _signaling = null;
 

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -192,13 +193,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> {
         );
       case GamePhase.voting:
         return (
-          Colors.orange.withValues(alpha: 0.18),
-          isDark ? Colors.orange.shade300 : Colors.orange.shade800,
+          Colors.orange.withValues(alpha: isDark ? 0.18 : 0.14),
+          isDark ? Colors.orange.shade300 : Colors.orange.shade900,
         );
       case GamePhase.nightAction:
         return (
-          Colors.deepPurple.withValues(alpha: 0.22),
-          isDark ? Colors.deepPurple.shade200 : Colors.deepPurple.shade700,
+          Colors.deepPurple.withValues(alpha: isDark ? 0.22 : 0.13),
+          isDark ? Colors.deepPurple.shade200 : Colors.deepPurple.shade800,
         );
       case GamePhase.blankGuess:
         return (
@@ -207,8 +208,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> {
         );
       case GamePhase.settlement:
         return (
-          Colors.green.withValues(alpha: 0.18),
-          isDark ? Colors.green.shade300 : Colors.green.shade700,
+          Colors.green.withValues(alpha: isDark ? 0.18 : 0.14),
+          isDark ? Colors.green.shade300 : Colors.green.shade800,
         );
     }
   }
@@ -366,114 +367,126 @@ class _RoomScreenState extends ConsumerState<RoomScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Stack(
-              children: [
-                ListView.builder(
-                  controller: _scrollController,
-                  padding: EdgeInsets.only(
-                    left: 12,
-                    right: 12,
-                    top: 10,
-                    bottom: roomState.isHost ? 84 : 12,
-                  ),
-                  itemCount: roomState.chatMessages.length,
-                  itemBuilder: (context, index) {
-                    final msg = roomState.chatMessages[index];
-                    return _ChatMessageItem(
-                      message: msg,
-                      players: roomState.players,
-                      selfPlayer: roomState.selfPlayer,
-                      playerMarks: roomState.playerMarks,
-                      onTapPlayerAvatar: (target) {
-                        _openPlayerMarkDialog(
-                          target,
-                          roomState.playerMarks[target.id],
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final horizontalPad =
+              math.max(12.0, (constraints.maxWidth - 800) / 2);
+          final effectiveWidth = constraints.maxWidth - horizontalPad * 2;
+          final maxBubbleWidth = math.min(effectiveWidth * 0.72, 500.0);
+          final fabRight =
+              math.max(16.0, (constraints.maxWidth - 800) / 2 + 16);
+
+          return Column(
+            children: [
+              Expanded(
+                child: Stack(
+                  children: [
+                    ListView.builder(
+                      controller: _scrollController,
+                      padding: EdgeInsets.only(
+                        left: horizontalPad,
+                        right: horizontalPad,
+                        top: 10,
+                        bottom: roomState.isHost ? 84 : 12,
+                      ),
+                      itemCount: roomState.chatMessages.length,
+                      itemBuilder: (context, index) {
+                        final msg = roomState.chatMessages[index];
+                        return _ChatMessageItem(
+                          message: msg,
+                          players: roomState.players,
+                          selfPlayer: roomState.selfPlayer,
+                          playerMarks: roomState.playerMarks,
+                          maxBubbleWidth: maxBubbleWidth,
+                          onTapPlayerAvatar: (target) {
+                            _openPlayerMarkDialog(
+                              target,
+                              roomState.playerMarks[target.id],
+                            );
+                          },
                         );
                       },
+                    ),
+                    if (roomState.isHost)
+                      Positioned(
+                        right: fabRight,
+                        bottom: 16,
+                        child: FloatingActionButton(
+                          heroTag: 'room_host_fab',
+                          tooltip: '房主控制',
+                          onPressed: _openHostConsole,
+                          child: const Icon(Icons.tune),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              SafeArea(
+                top: false,
+                child: _BottomActionBar(
+                  roomState: roomState,
+                  chatInputController: _chatInputController,
+                  onSendChat: _sendMessage,
+                  onOpenVote: () {
+                    final alivePlayers =
+                        roomState.players.where((p) => p.isAlive).toList();
+                    showDialog(
+                      context: context,
+                      builder: (_) => VoteDialog(
+                        alivePlayers: alivePlayers,
+                        selfId: roomState.selfPlayer.id,
+                        onVote: (targetId) {
+                          ref
+                              .read(gameControllerProvider.notifier)
+                              .submitVote(targetId);
+                        },
+                      ),
+                    );
+                  },
+                  onOpenNightAction: () {
+                    final alivePlayers =
+                        roomState.players.where((p) => p.isAlive).toList();
+                    showDialog(
+                      context: context,
+                      builder: (_) => NightActionDialog(
+                        alivePlayers: alivePlayers,
+                        selfId: roomState.selfPlayer.id,
+                        onAction: (targetId) {
+                          ref
+                              .read(gameControllerProvider.notifier)
+                              .submitNightAction(targetId);
+                        },
+                      ),
+                    );
+                  },
+                  onOpenBlankGuess: () {
+                    showDialog(
+                      context: context,
+                      builder: (_) => BlankGuessDialog(
+                        hint: roomState.myIdentity?.hint,
+                        onGuess: (wA, wB) {
+                          ref
+                              .read(gameControllerProvider.notifier)
+                              .submitBlankGuess(wA, wB);
+                        },
+                      ),
+                    );
+                  },
+                  onOpenSettlement: () {
+                    if (roomState.settlementDetails == null) return;
+                    showDialog(
+                      context: context,
+                      builder: (_) => SettlementDialog(
+                        details: roomState.settlementDetails!,
+                        onDismiss: () {},
+                      ),
                     );
                   },
                 ),
-                if (roomState.isHost)
-                  Positioned(
-                    right: 16,
-                    bottom: 16,
-                    child: FloatingActionButton(
-                      heroTag: 'room_host_fab',
-                      tooltip: '房主控制',
-                      onPressed: _openHostConsole,
-                      child: const Icon(Icons.tune),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          SafeArea(
-            top: false,
-            child: _BottomActionBar(
-              roomState: roomState,
-              chatInputController: _chatInputController,
-              onSendChat: _sendMessage,
-              onOpenVote: () {
-                final alivePlayers =
-                    roomState.players.where((p) => p.isAlive).toList();
-                showDialog(
-                  context: context,
-                  builder: (_) => VoteDialog(
-                    alivePlayers: alivePlayers,
-                    selfId: roomState.selfPlayer.id,
-                    onVote: (targetId) {
-                      ref
-                          .read(gameControllerProvider.notifier)
-                          .submitVote(targetId);
-                    },
-                  ),
-                );
-              },
-              onOpenNightAction: () {
-                final alivePlayers =
-                    roomState.players.where((p) => p.isAlive).toList();
-                showDialog(
-                  context: context,
-                  builder: (_) => NightActionDialog(
-                    alivePlayers: alivePlayers,
-                    selfId: roomState.selfPlayer.id,
-                    onAction: (targetId) {
-                      ref
-                          .read(gameControllerProvider.notifier)
-                          .submitNightAction(targetId);
-                    },
-                  ),
-                );
-              },
-              onOpenBlankGuess: () {
-                showDialog(
-                  context: context,
-                  builder: (_) => BlankGuessDialog(
-                    hint: roomState.myIdentity?.hint,
-                    onGuess: (wA, wB) {
-                      ref
-                          .read(gameControllerProvider.notifier)
-                          .submitBlankGuess(wA, wB);
-                    },
-                  ),
-                );
-              },
-              onOpenSettlement: () {
-                if (roomState.settlementDetails == null) return;
-                showDialog(
-                  context: context,
-                  builder: (_) => SettlementDialog(
-                    details: roomState.settlementDetails!,
-                    onDismiss: () {},
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -501,26 +514,42 @@ class _BottomActionBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         border: Border(
           top: BorderSide(
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
+            color: isDark
+                ? theme.colorScheme.outlineVariant.withValues(alpha: 0.6)
+                : const Color(0xFFE2E8F0),
           ),
         ),
       ),
-      child: _buildContent(context, theme),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800),
+          child: _buildContent(context, theme),
+        ),
+      ),
     );
   }
 
   Widget _buildContent(BuildContext context, ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
     if (roomState.canSendChat) {
       final hint = roomState.currentPhase == GamePhase.description
           ? '描述你的词语...'
           : '输入发言...';
+      final pillBorder = OutlineInputBorder(
+        borderRadius: BorderRadius.circular(22),
+        borderSide: isDark
+            ? BorderSide.none
+            : const BorderSide(color: Color(0xFFE2E8F0)),
+      );
       return Row(
         children: [
           Expanded(
@@ -531,15 +560,23 @@ class _BottomActionBar extends StatelessWidget {
               decoration: InputDecoration(
                 hintText: hint,
                 filled: true,
-                fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
+                fillColor: isDark
+                    ? theme.colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.7)
+                    : const Color(0xFFF8FAFC),
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 11,
                 ),
-                border: OutlineInputBorder(
+                border: pillBorder,
+                enabledBorder: pillBorder,
+                focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(22),
-                  borderSide: BorderSide.none,
+                  borderSide: BorderSide(
+                    color: theme.colorScheme.primary,
+                    width: 1.5,
+                  ),
                 ),
               ),
             ),
@@ -670,11 +707,14 @@ class _MutedStatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
       width: double.infinity,
       height: 44,
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.65),
+        color: isDark
+            ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.65)
+            : const Color(0xFFF1F5F9),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -701,6 +741,7 @@ class _ChatMessageItem extends StatelessWidget {
   final List<Player> players;
   final Player selfPlayer;
   final Map<String, String> playerMarks;
+  final double maxBubbleWidth;
   final ValueChanged<Player> onTapPlayerAvatar;
 
   const _ChatMessageItem({
@@ -708,12 +749,14 @@ class _ChatMessageItem extends StatelessWidget {
     required this.players,
     required this.selfPlayer,
     required this.playerMarks,
+    required this.maxBubbleWidth,
     required this.onTapPlayerAvatar,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final payload = message.payload;
     final isSystem = payload['is_system'] == true;
     final senderId = payload['sender_id']?.toString() ?? '';
@@ -724,9 +767,14 @@ class _ChatMessageItem extends StatelessWidget {
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 6),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-          constraints: const BoxConstraints(maxWidth: 320),
+          constraints: BoxConstraints(
+            maxWidth: math.min(maxBubbleWidth + 80, 420),
+          ),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.65),
+            color: isDark
+                ? theme.colorScheme.surfaceContainerHighest
+                    .withValues(alpha: 0.65)
+                : const Color(0xFFE2E8F0).withValues(alpha: 0.75),
             borderRadius: BorderRadius.circular(14),
           ),
           child: Text(
@@ -764,23 +812,27 @@ class _ChatMessageItem extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Flexible(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(16),
-                    topRight: Radius.circular(16),
-                    bottomLeft: Radius.circular(16),
-                    bottomRight: Radius.circular(4),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      topRight: Radius.circular(16),
+                      bottomLeft: Radius.circular(16),
+                      bottomRight: Radius.circular(4),
+                    ),
                   ),
-                ),
-                child: Text(
-                  text,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: theme.colorScheme.onPrimary,
-                    height: 1.35,
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: theme.colorScheme.onPrimary,
+                      height: 1.35,
+                    ),
                   ),
                 ),
               ),
@@ -855,25 +907,34 @@ class _ChatMessageItem extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 3),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(4),
-                      topRight: Radius.circular(16),
-                      bottomLeft: Radius.circular(16),
-                      bottomRight: Radius.circular(16),
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? theme.colorScheme.surfaceContainerHighest
+                          : Colors.white,
+                      border: isDark
+                          ? null
+                          : Border.all(color: const Color(0xFFE2E8F0)),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(4),
+                        topRight: Radius.circular(16),
+                        bottomLeft: Radius.circular(16),
+                        bottomRight: Radius.circular(16),
+                      ),
                     ),
-                  ),
-                  child: Text(
-                    text,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: isOut
-                          ? theme.colorScheme.onSurfaceVariant
-                          : theme.colorScheme.onSurface,
-                      height: 1.35,
+                    child: Text(
+                      text,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: isOut
+                            ? theme.colorScheme.onSurfaceVariant
+                            : theme.colorScheme.onSurface,
+                        height: 1.35,
+                      ),
                     ),
                   ),
                 ),

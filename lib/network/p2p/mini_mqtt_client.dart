@@ -26,6 +26,8 @@ class MiniMqttClient {
 
   final List<MqttMessageHandler> _handlers = [];
   final Map<int, Completer<void>> _pendingSubscribes = {};
+  final BytesBuilder _rxBuffer = BytesBuilder(copy: false);
+  Completer<void>? _connackCompleter;
 
   bool get isConnected => _isConnected;
 
@@ -37,21 +39,17 @@ class MiniMqttClient {
   }
 
   Future<void> connect({Duration timeout = const Duration(seconds: 8)}) async {
-    final connectCompleter = Completer<void>();
-    Timer? timeoutTimer;
+    disconnect();
+    _rxBuffer.clear();
+
+    final sw = Stopwatch()..start();
 
     try {
       final uri = Uri.parse(url);
-      _channel = WebSocketChannel.connect(uri);
+      final channel = WebSocketChannel.connect(uri, protocols: const ['mqtt']);
+      _channel = channel;
 
-      timeoutTimer = Timer(timeout, () {
-        if (!connectCompleter.isCompleted) {
-          disconnect();
-          connectCompleter.completeError(TimeoutException('连接信令服务器超时'));
-        }
-      });
-
-      _subscription = _channel!.stream.listen(
+      _subscription = channel.stream.listen(
         (dynamic rawData) {
           final Uint8List data;
           if (rawData is Uint8List) {
@@ -64,62 +62,117 @@ class MiniMqttClient {
             return;
           }
 
-          _processIncomingBytes(data, connectCompleter);
+          _processIncomingBytes(data);
         },
-        onError: (dynamic err) {
-          if (!connectCompleter.isCompleted) {
-            connectCompleter.completeError(err);
+        onError: (Object err) {
+          final comp = _connackCompleter;
+          if (comp != null && !comp.isCompleted) {
+            comp.completeError(err);
           }
           disconnect();
         },
         onDone: () {
+          final comp = _connackCompleter;
+          if (comp != null && !comp.isCompleted) {
+            comp.completeError(StateError('信令连接已关闭'));
+          }
           disconnect();
         },
         cancelOnError: false,
       );
 
-      // 发送 CONNECT 报文
+      await channel.ready.timeout(
+        timeout,
+        onTimeout: () => throw TimeoutException('连接信令服务器超时'),
+      );
+
+      if (_channel != channel) {
+        throw StateError('信令连接已关闭');
+      }
+
+      final remaining = timeout - sw.elapsed;
+      if (remaining <= Duration.zero) {
+        throw TimeoutException('连接信令服务器超时');
+      }
+
+      final connComp = Completer<void>();
+      _connackCompleter = connComp;
+
+      // 仅在 WebSocket 握手就绪后发送 CONNECT 报文
       _sendConnect();
 
-      await connectCompleter.future;
+      await connComp.future.timeout(
+        remaining,
+        onTimeout: () => throw TimeoutException('MQTT 握手超时'),
+      );
     } catch (e) {
+      _connackCompleter?.future.ignore();
+      _connackCompleter = null;
       disconnect();
       rethrow;
     } finally {
-      timeoutTimer?.cancel();
+      _connackCompleter = null;
     }
   }
 
-  void _processIncomingBytes(Uint8List data, Completer<void> connectCompleter) {
+  void _processIncomingBytes(Uint8List data) {
+    if (data.isNotEmpty) {
+      _rxBuffer.add(data);
+    }
+
+    final bytes = _rxBuffer.toBytes();
     var offset = 0;
-    while (offset < data.length) {
-      final header = data[offset++];
+
+    while (offset < bytes.length) {
+      final packetStart = offset;
+      final header = bytes[offset++];
       final packetType = header >> 4;
 
-      // 解码变长剩余长度
+      // 解码变长剩余长度（MQTT 3.1.1 最多 4 字节）
       var multiplier = 1;
       var remainingLength = 0;
-      int digit;
-      do {
-        if (offset >= data.length) break;
-        digit = data[offset++];
-        remainingLength += (digit & 0x7f) * multiplier;
-        multiplier *= 128;
-      } while ((digit & 0x80) != 0 && offset < data.length);
+      var lengthComplete = false;
+      var lengthBytes = 0;
 
-      if (offset + remainingLength > data.length) {
+      while (offset < bytes.length) {
+        final digit = bytes[offset++];
+        remainingLength += (digit & 0x7f) * multiplier;
+        lengthBytes++;
+        if ((digit & 0x80) == 0) {
+          lengthComplete = true;
+          break;
+        }
+        multiplier *= 128;
+        if (lengthBytes >= 4) {
+          // 异常报文长度，清空缓冲防止死循环
+          _rxBuffer.clear();
+          return;
+        }
+      }
+
+      if (!lengthComplete || offset + remainingLength > bytes.length) {
+        // 半包数据：回退到报文起点，等待后续分片
+        offset = packetStart;
         break;
       }
 
-      final content = Uint8List.sublistView(data, offset, offset + remainingLength);
+      final content = Uint8List.sublistView(bytes, offset, offset + remainingLength);
       offset += remainingLength;
 
       // CONNACK (Packet Type 2)
       if (packetType == 2) {
+        final comp = _connackCompleter;
+        if (content.length >= 2 && content[1] != 0) {
+          if (comp != null && !comp.isCompleted) {
+            comp.completeError(StateError('MQTT 连接被拒绝 (code: ${content[1]})'));
+          }
+          disconnect();
+          return;
+        }
         _isConnected = true;
         _startPing();
-        if (!connectCompleter.isCompleted) {
-          connectCompleter.complete();
+        if (comp != null && !comp.isCompleted) {
+          comp.complete();
         }
       }
       // SUBACK (Packet Type 9)
@@ -137,6 +190,11 @@ class MiniMqttClient {
         _handlePublish(header, content);
       }
     }
+
+    _rxBuffer.clear();
+    if (offset < bytes.length) {
+      _rxBuffer.add(Uint8List.sublistView(bytes, offset));
+    }
   }
 
   void _handlePublish(int header, Uint8List content) {
@@ -144,18 +202,21 @@ class MiniMqttClient {
       final qos = (header >> 1) & 0x03;
       var offset = 0;
 
+      if (content.length < 2) return;
       final topicLen = (content[offset] << 8) | content[offset + 1];
       offset += 2;
+      if (offset + topicLen > content.length) return;
       final topic = utf8.decode(content.sublist(offset, offset + topicLen));
       offset += topicLen;
 
       if (qos > 0) {
         offset += 2; // 跳过 PacketId
       }
+      if (offset > content.length) return;
 
       final payload = utf8.decode(content.sublist(offset));
       final msg = MqttMessage(topic: topic, payload: payload);
-      for (final handler in _handlers) {
+      for (final handler in List<MqttMessageHandler>.of(_handlers)) {
         handler(msg);
       }
     } catch (_) {}
@@ -182,7 +243,15 @@ class MiniMqttClient {
     varHeaderAndPayload[4 + topicBytes.length] = 0x00; // QoS 0
 
     final packet = _buildPacket(0x82, varHeaderAndPayload);
-    _channel?.sink.add(packet);
+    try {
+      _channel?.sink.add(packet);
+    } catch (_) {
+      _pendingSubscribes.remove(pid);
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
+      return completer.future;
+    }
 
     // 4 秒保护超时
     Timer(const Duration(seconds: 4), () {
@@ -210,28 +279,50 @@ class MiniMqttClient {
     content.setRange(2 + topicBytes.length, content.length, payloadBytes);
 
     final packet = _buildPacket(0x30, content);
-    _channel?.sink.add(packet);
+    try {
+      _channel?.sink.add(packet);
+    } catch (_) {}
   }
 
   void disconnect() {
     _stopPing();
+    _rxBuffer.clear();
+
+    final wasConnected = _isConnected;
+    _isConnected = false;
+
+    final connComp = _connackCompleter;
+    _connackCompleter = null;
+    if (connComp != null && !connComp.isCompleted) {
+      connComp.future.ignore();
+      connComp.completeError(StateError('连接已断开'));
+    }
+
     for (final comp in _pendingSubscribes.values) {
       if (!comp.isCompleted) comp.complete();
     }
     _pendingSubscribes.clear();
 
-    if (_channel != null) {
-      if (_isConnected) {
+    final sub = _subscription;
+    _subscription = null;
+    if (sub != null) {
+      try {
+        sub.cancel().catchError((_) {});
+      } catch (_) {}
+    }
+
+    final channel = _channel;
+    _channel = null;
+    if (channel != null) {
+      if (wasConnected) {
         try {
-          _channel?.sink.add(Uint8List.fromList([0xe0, 0x00])); // DISCONNECT
+          channel.sink.add(Uint8List.fromList([0xe0, 0x00])); // DISCONNECT
         } catch (_) {}
       }
-      _subscription?.cancel();
-      _subscription = null;
-      _channel?.sink.close();
-      _channel = null;
+      try {
+        Future<void>.sync(() => channel.sink.close()).catchError((_) {});
+      } catch (_) {}
     }
-    _isConnected = false;
   }
 
   void _sendConnect() {

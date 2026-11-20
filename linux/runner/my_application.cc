@@ -45,15 +45,16 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "word_guess_assistant_flutter");
+    gtk_header_bar_set_title(header_bar, "猜词助手");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "word_guess_assistant_flutter");
+    gtk_window_set_title(window, "猜词助手");
   }
 
-  // Default to modern mobile device ratio (portrait)
-  gtk_window_set_default_size(window, 420, 860);
+  // Default to modern portrait dimensions while allowing free desktop resizing.
+  gtk_window_set_default_size(window, 440, 820);
+  gtk_window_set_resizable(window, TRUE);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
@@ -61,9 +62,8 @@ static void my_application_activate(GApplication* application) {
 
   FlView* view = fl_view_new(project);
   GdkRGBA background_color;
-  // Background defaults to black, override it here if necessary, e.g. #00000000
-  // for transparent.
-  gdk_rgba_parse(&background_color, "#000000");
+  // Match default Light theme scaffold (#F8FAFC) to avoid a black startup flash.
+  gdk_rgba_parse(&background_color, "#F8FAFC");
   fl_view_set_background_color(view, &background_color);
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));

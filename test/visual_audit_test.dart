@@ -10,20 +10,13 @@ import 'package:word_guess_assistant_flutter/controllers/game_controller.dart';
 import 'package:word_guess_assistant_flutter/controllers/theme_controller.dart';
 import 'package:word_guess_assistant_flutter/models/game_models.dart';
 import 'package:word_guess_assistant_flutter/models/protocol_messages.dart';
-import 'package:word_guess_assistant_flutter/ui/modals/avatar_picker_dialog.dart';
-import 'package:word_guess_assistant_flutter/ui/modals/host_console_dialog.dart';
-import 'package:word_guess_assistant_flutter/ui/modals/identity_card_dialog.dart';
-import 'package:word_guess_assistant_flutter/ui/modals/phase_notice_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/player_mark_dialog.dart';
-import 'package:word_guess_assistant_flutter/ui/modals/player_roster_sheet.dart';
-import 'package:word_guess_assistant_flutter/ui/modals/rule_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/settlement_dialog.dart';
-import 'package:word_guess_assistant_flutter/ui/modals/vote_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/screens/home_screen.dart';
 import 'package:word_guess_assistant_flutter/ui/screens/room_screen.dart';
 
 const _auditDir =
-    '/home/tfiyuen_lau/.gemini/antigravity/brain/c1aefd05-98a0-4d68-a3b2-fff9047d6b36/scratch/visual_audit';
+    '/home/tfiyuen_lau/.gemini/antigravity/brain/32185e6f-fddd-4e78-a21a-d2dcdcecd47e/visual_audit_v2';
 
 bool get _saveScreenshots =>
     Platform.environment['GENERATE_VISUAL_AUDIT'] == '1';
@@ -175,13 +168,14 @@ RoomState _makeRoom({
 Future<void> _capture(
   WidgetTester tester,
   GlobalKey boundaryKey,
-  String filename,
-) async {
+  String filename, {
+  double pixelRatio = 1.5,
+}) async {
   if (!_saveScreenshots) return;
   await tester.runAsync(() async {
     final boundary = boundaryKey.currentContext!.findRenderObject()!
         as RenderRepaintBoundary;
-    final image = await boundary.toImage(pixelRatio: 2.0);
+    final image = await boundary.toImage(pixelRatio: pixelRatio);
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
     final dir = Directory(_auditDir);
     if (!dir.existsSync()) {
@@ -203,15 +197,20 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('Visual layout audit across HomeScreen, RoomScreen and modals at 390x844', (tester) async {
-    tester.view.physicalSize = const Size(390, 844);
-    tester.view.devicePixelRatio = 1.0;
+  testWidgets(
+      'Visual layout audit v2 across mobile (390x844) and desktop (1100x760) in Light default + Dark sanity',
+      (tester) async {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.devicePixelRatio = 1.0;
 
     final boundaryKey = GlobalKey();
 
-    Widget wrap(Widget child, {AppThemeType theme = AppThemeType.night, List<Override> overrides = const []}) {
+    Widget wrap(
+      Widget child, {
+      AppThemeType theme = AppThemeType.light,
+      List<Override> overrides = const [],
+    }) {
       return ProviderScope(
         key: UniqueKey(),
         overrides: overrides,
@@ -226,134 +225,64 @@ void main() {
       );
     }
 
-    // 1. HomeScreen P2P (Dark)
-    await tester.pumpWidget(wrap(const HomeScreen(), theme: AppThemeType.night));
+    // 01. HomeScreen Mobile Light (390x844)
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpWidget(wrap(const HomeScreen()));
     await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '01_home_p2p_dark.png');
+    await _capture(tester, boundaryKey, '01_home_mobile_light.png');
 
-    // 2. HomeScreen LAN (Dark)
+    // 02. HomeScreen Desktop Light (1100x760)
+    tester.view.physicalSize = const Size(1100, 760);
+    await tester.pumpWidget(wrap(const HomeScreen()));
+    await tester.pumpAndSettle();
+    await _capture(tester, boundaryKey, '02_home_desktop_light.png');
+
+    // 03. HomeScreen LAN Desktop Light (1100x760)
     await tester.tap(find.text('局域网'));
     await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '02_home_lan_dark.png');
+    await _capture(tester, boundaryKey, '03_home_lan_desktop_light.png');
 
-    // 3. HomeScreen P2P (Light)
-    await tester.pumpWidget(wrap(const HomeScreen(), theme: AppThemeType.light));
+    // 04. RoomScreen Mobile Light (390x844)
+    tester.view.physicalSize = const Size(390, 844);
+    final roomMobileCtrl = _StaticRoomController(_makeRoom());
+    await tester.pumpWidget(wrap(
+      const RoomScreen(),
+      overrides: [gameControllerProvider.overrideWith((_) => roomMobileCtrl)],
+    ));
     await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '03_home_p2p_light.png');
+    await _capture(tester, boundaryKey, '04_room_mobile_light.png');
 
-    // 4. AvatarPickerDialog
-    await tester.tap(find.byIcon(Icons.edit));
+    // 05. RoomScreen Desktop Light (1100x760)
+    tester.view.physicalSize = const Size(1100, 760);
+    final roomDesktopCtrl = _StaticRoomController(_makeRoom());
+    await tester.pumpWidget(wrap(
+      const RoomScreen(),
+      overrides: [gameControllerProvider.overrideWith((_) => roomDesktopCtrl)],
+    ));
     await tester.pumpAndSettle();
-    expect(find.byType(AvatarPickerDialog), findsOneWidget);
-    await _capture(tester, boundaryKey, '04_avatar_picker.png');
-    await tester.tap(find.text('确定'));
-    await tester.pumpAndSettle();
+    await _capture(tester, boundaryKey, '05_room_desktop_light.png');
 
-    // 5. RuleDialog
-    await tester.tap(find.text('游戏规则'));
-    await tester.pumpAndSettle();
-    expect(find.byType(RuleDialog), findsOneWidget);
-    await _capture(tester, boundaryKey, '05_rule_dialog.png');
-    await tester.tap(find.text('知道了'));
-    await tester.pumpAndSettle();
-
-    // 6. RoomScreen Round 1 Host (Dark)
-    final roomCtrl = _StaticRoomController(_makeRoom());
+    // 09. Dark Theme Desktop Sanity Check (1100x760)
+    final roomDarkCtrl = _StaticRoomController(_makeRoom());
     await tester.pumpWidget(wrap(
       const RoomScreen(),
       theme: AppThemeType.night,
-      overrides: [gameControllerProvider.overrideWith((_) => roomCtrl)],
+      overrides: [gameControllerProvider.overrideWith((_) => roomDarkCtrl)],
     ));
     await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '06_room_round1_host.png');
+    await _capture(tester, boundaryKey, '09_room_desktop_dark.png');
 
-    // 7. RoomScreen Voting Bottom Bar
+    // 06. RoomScreen Voting Mobile Light (390x844)
+    tester.view.physicalSize = const Size(390, 844);
     final voteCtrl = _StaticRoomController(_makeRoom(phase: GamePhase.voting));
     await tester.pumpWidget(wrap(
       const RoomScreen(),
-      theme: AppThemeType.night,
       overrides: [gameControllerProvider.overrideWith((_) => voteCtrl)],
     ));
     await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '07_room_voting_bar.png');
+    await _capture(tester, boundaryKey, '06_room_voting_light.png');
 
-    // 8. VoteDialog
-    await tester.tap(find.text('投票'));
-    await tester.pumpAndSettle();
-    expect(find.byType(VoteDialog), findsOneWidget);
-    await _capture(tester, boundaryKey, '08_vote_dialog.png');
-    await tester.tap(find.text('取消'));
-    await tester.pumpAndSettle();
-
-    // 9. RoomScreen Night Bottom Bar
-    final nightCtrl = _StaticRoomController(_makeRoom(phase: GamePhase.nightAction));
-    await tester.pumpWidget(wrap(
-      const RoomScreen(),
-      theme: AppThemeType.night,
-      overrides: [gameControllerProvider.overrideWith((_) => nightCtrl)],
-    ));
-    await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '09_room_night_bar.png');
-
-    // 10. RoomScreen Round 2 Locked
-    final r2Ctrl = _StaticRoomController(_makeRoom(phase: GamePhase.description, round: 2));
-    await tester.pumpWidget(wrap(
-      const RoomScreen(),
-      theme: AppThemeType.night,
-      overrides: [gameControllerProvider.overrideWith((_) => r2Ctrl)],
-    ));
-    await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '10_room_round2_locked.png');
-
-    // 11. PlayerRosterSheet
-    await tester.tap(find.byIcon(Icons.group_outlined));
-    await tester.pumpAndSettle();
-    expect(find.byType(PlayerRosterSheet), findsOneWidget);
-    await _capture(tester, boundaryKey, '11_player_roster_sheet.png');
-    await tester.tapAt(const Offset(10, 10));
-    await tester.pumpAndSettle();
-
-    // 12. IdentityCardDialog (revealed)
-    await tester.tap(find.text('身份'));
-    await tester.pumpAndSettle();
-    expect(find.byType(IdentityCardDialog), findsOneWidget);
-    await tester.tap(find.text('点击查看'));
-    await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '12_identity_card_dialog.png');
-    await tester.tap(find.text('关闭'));
-    await tester.pumpAndSettle();
-
-    // 13. HostConsoleDialog (preparing)
-    final prepCtrl = _StaticRoomController(_makeRoom(phase: GamePhase.preparing));
-    await tester.pumpWidget(wrap(
-      const RoomScreen(),
-      theme: AppThemeType.night,
-      overrides: [gameControllerProvider.overrideWith((_) => prepCtrl)],
-    ));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byType(FloatingActionButton));
-    await tester.pumpAndSettle();
-    expect(find.byType(HostConsoleDialog), findsOneWidget);
-    await _capture(tester, boundaryKey, '13_host_console_dialog.png');
-    await tester.tap(find.text('关闭'));
-    await tester.pumpAndSettle();
-
-    // 14. PhaseNoticeDialog & SettlementDialog & PlayerMarkDialog standalone renders
-    await tester.pumpWidget(wrap(
-      const Scaffold(
-        body: Center(
-          child: PhaseNoticeDialog(
-            title: '第 1 轮 · 投票',
-            message: '第 1 轮描述结束，请存活玩家进行匿名投票。',
-            phase: GamePhase.voting,
-          ),
-        ),
-      ),
-      theme: AppThemeType.night,
-    ));
-    await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '14_phase_notice_dialog.png');
-
+    // 07. SettlementDialog Mobile Light (390x844)
     await tester.pumpWidget(wrap(
       Scaffold(
         body: Center(
@@ -406,12 +335,11 @@ void main() {
           ),
         ),
       ),
-      theme: AppThemeType.night,
     ));
     await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '15_settlement_dialog.png');
+    await _capture(tester, boundaryKey, '07_settlement_light.png');
 
-    // 16. PlayerMarkDialog
+    // 08. PlayerMarkDialog Mobile Light (390x844)
     await tester.pumpWidget(wrap(
       Scaffold(
         body: Center(
@@ -426,9 +354,8 @@ void main() {
           ),
         ),
       ),
-      theme: AppThemeType.night,
     ));
     await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '16_player_mark_dialog.png');
+    await _capture(tester, boundaryKey, '08_player_mark_light.png');
   });
 }

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:word_guess_assistant_flutter/controllers/game_controller.dart';
+import 'package:word_guess_assistant_flutter/controllers/theme_controller.dart';
 import 'package:word_guess_assistant_flutter/main.dart';
 import 'package:word_guess_assistant_flutter/models/game_models.dart';
 import 'package:word_guess_assistant_flutter/models/protocol_messages.dart';
@@ -130,21 +131,21 @@ RoomState _sampleRoomState({
     avatar: 'characters/detective.svg',
     isAlive: selfAlive,
   );
-  final p2 = const Player(
+  const p2 = Player(
     id: 'p_2',
     name: 'AI · Alpha',
     avatar: 'animals/fox.svg',
     isAlive: true,
     isBot: true,
   );
-  final p3 = const Player(
+  const p3 = Player(
     id: 'p_3',
     name: 'AI · Bravo',
     avatar: 'cyber/hacker.svg',
     isAlive: false,
     isBot: true,
   );
-  final p4 = const Player(
+  const p4 = Player(
     id: 'p_4',
     name: 'AI · Charlie',
     avatar: 'animals/cat.svg',
@@ -205,8 +206,8 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  group('HomeScreen Minimalist Layout & Modals', () {
-    testWidgets('HomeScreen renders minimalist layout, rules button, avatar dialog, LAN IP+Port inputs', (tester) async {
+  group('HomeScreen Minimalist & Responsive Layout', () {
+    testWidgets('Mobile portrait (390x844) defaults to Light theme and single-column layout', (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -215,16 +216,22 @@ void main() {
       await tester.pumpWidget(const ProviderScope(child: WordGuessAssistantApp()));
       await tester.pumpAndSettle();
 
+      // Default theme is Light (#F8FAFC)
+      final scaffoldCtx = tester.element(find.byType(Scaffold));
+      final theme = Theme.of(scaffoldCtx);
+      expect(theme.brightness, equals(Brightness.light));
+      expect(theme.scaffoldBackgroundColor, equals(const Color(0xFFF8FAFC)));
+
       // Clean minimalist title & zero legacy dramatic labels
       expect(find.text('猜词助手'), findsOneWidget);
       expect(find.text('特工猜词助手'), findsNothing);
       expect(find.text('特工机密档案'), findsNothing);
       expect(find.text('WebRTC P2P'), findsNothing);
 
-      // Avatar picker is dialog-only: only 1 AvatarWidget on HomeScreen (no 15-avatar strip)
+      // Avatar picker is dialog-only: only 1 AvatarWidget on HomeScreen
       expect(find.byType(AvatarWidget), findsOneWidget);
 
-      // Rectangular 游戏规则 button between profile card and mode switch
+      // Single-column order: Profile -> 游戏规则 -> Mode Switch
       final profilePos = tester.getTopLeft(find.byType(AvatarWidget));
       final ruleButton = find.text('游戏规则');
       final modeSwitch = find.byType(SegmentedButton<String>);
@@ -251,16 +258,16 @@ void main() {
       await tester.tap(find.text('确定'));
       await tester.pumpAndSettle();
 
-      // Tap palette button -> opens ThemePickerDialog
+      // Tap palette button -> opens ThemePickerDialog with 浅色 first
       await tester.tap(find.byIcon(Icons.palette_outlined));
       await tester.pumpAndSettle();
       expect(find.byType(ThemePickerDialog), findsOneWidget);
-      expect(find.text('暗夜'), findsOneWidget);
       expect(find.text('浅色'), findsOneWidget);
+      expect(find.text('暗夜'), findsOneWidget);
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
 
-      // Switch to LAN mode -> IP 地址 + 端口 inputs, no cluttered LAN discovery radar
+      // Switch to LAN mode -> IP 地址 + 端口 inputs
       await tester.tap(find.text('局域网'));
       await tester.pumpAndSettle();
       expect(find.text('IP 地址'), findsOneWidget);
@@ -268,21 +275,52 @@ void main() {
       expect(find.text('发现局域网房间'), findsNothing);
       expect(find.text('创建局域网房间'), findsOneWidget);
     });
+
+    testWidgets('Wide desktop (1100x760) renders edge-to-edge two-column layout without 430px cage', (tester) async {
+      tester.view.physicalSize = const Size(1100, 760);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(const ProviderScope(child: WordGuessAssistantApp()));
+      await tester.pumpAndSettle();
+
+      // Scaffold & AppBar span the full 1100px window width (no 430x900 dark pillarbox)
+      final scaffoldSize = tester.getSize(find.byType(Scaffold));
+      expect(scaffoldSize.width, equals(1100));
+      expect(scaffoldSize.height, equals(760));
+
+      final appBarSize = tester.getSize(find.byType(AppBar));
+      expect(appBarSize.width, equals(1100));
+
+      // Two-column layout: Profile/Rule column on left, Mode switcher on right at same row
+      final avatarRect = tester.getRect(find.byType(AvatarWidget));
+      final modeRect = tester.getRect(find.byType(SegmentedButton<String>));
+      expect(avatarRect.right, lessThan(modeRect.left));
+      expect((avatarRect.top - modeRect.top).abs(), lessThan(40));
+
+      // Switch to LAN mode cleanly on wide desktop
+      await tester.tap(find.text('局域网'));
+      await tester.pumpAndSettle();
+      expect(find.text('IP 地址'), findsOneWidget);
+      expect(find.text('端口'), findsOneWidget);
+    });
   });
 
-  group('RoomScreen Full-Screen IM Chat, Marking, Locks & Modals', () {
-    testWidgets('Full-screen IM chat (no GridView), arrow_back, Host FAB, tap avatar to mark, OUT badge, Round-1 in-place update', (tester) async {
+  group('RoomScreen Full-Screen IM Chat, Responsive Layout, Marking & Modals', () {
+    testWidgets('Mobile portrait (390x844) Light theme full-screen IM chat, marking & Round-1 in-place update', (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
       final ctrl = _TestGameController(_sampleRoomState());
+      final lightTheme = ThemeNotifier().getThemeData(AppThemeType.light);
 
       await tester.pumpWidget(
         ProviderScope(
           overrides: [gameControllerProvider.overrideWith((_) => ctrl)],
-          child: const MaterialApp(home: RoomScreen()),
+          child: MaterialApp(theme: lightTheme, home: const RoomScreen()),
         ),
       );
       await tester.pumpAndSettle();
@@ -348,7 +386,39 @@ void main() {
       await tester.pumpAndSettle();
     });
 
-    testWidgets('PhaseNoticeDialog triggers on phase transitions, Voting lock + private notice, Round-2+ input locked, dead player disabled, marks cleared on settlement', (tester) async {
+    testWidgets('Wide desktop (1100x760) RoomScreen spans full width with centered 800px chat & aligned Host FAB', (tester) async {
+      tester.view.physicalSize = const Size(1100, 760);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final ctrl = _TestGameController(_sampleRoomState());
+      final lightTheme = ThemeNotifier().getThemeData(AppThemeType.light);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [gameControllerProvider.overrideWith((_) => ctrl)],
+          child: MaterialApp(theme: lightTheme, home: const RoomScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Full-width scaffold & AppBar
+      expect(tester.getSize(find.byType(Scaffold)).width, equals(1100));
+      expect(tester.getSize(find.byType(AppBar)).width, equals(1100));
+
+      // Chat stream left padding centers 800px content: (1100 - 800) / 2 = 150
+      final firstAvatarRect = tester.getRect(find.byType(AvatarWidget).first);
+      expect(firstAvatarRect.left, closeTo(150.0, 2.0));
+
+      // Host FAB sits cleanly near the right edge of the centered 800px column, above the bottom bar
+      final fabRect = tester.getRect(find.byType(FloatingActionButton));
+      final inputRect = tester.getRect(find.byType(TextField));
+      expect(fabRect.right, closeTo(1100 - 166, 2.0));
+      expect(fabRect.bottom, lessThan(inputRect.top));
+    });
+
+    testWidgets('PhaseNoticeDialog triggers, Voting lock + private notice, Round-2+ locked, dead player disabled, settlement clears marks', (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -358,11 +428,12 @@ void main() {
         isHost: false,
         marks: {'p_2': GameRoles.spy},
       ));
+      final lightTheme = ThemeNotifier().getThemeData(AppThemeType.light);
 
       await tester.pumpWidget(
         ProviderScope(
           overrides: [gameControllerProvider.overrideWith((_) => ctrl)],
-          child: const MaterialApp(home: RoomScreen()),
+          child: MaterialApp(theme: lightTheme, home: const RoomScreen()),
         ),
       );
       await tester.pumpAndSettle();
@@ -479,6 +550,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: ThemeNotifier().getThemeData(AppThemeType.light),
           home: Scaffold(
             body: Builder(
               builder: (context) => Column(
