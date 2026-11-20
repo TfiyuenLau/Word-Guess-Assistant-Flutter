@@ -5,6 +5,8 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/TfiyuenLau/Word-Guess-Assistant-Flutter/actions/workflows/ci.yml"><img src="https://github.com/TfiyuenLau/Word-Guess-Assistant-Flutter/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/TfiyuenLau/Word-Guess-Assistant-Flutter/actions/workflows/release.yml"><img src="https://github.com/TfiyuenLau/Word-Guess-Assistant-Flutter/actions/workflows/release.yml/badge.svg" alt="Release" /></a>
   <img src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white" alt="Flutter 3.x" />
   <img src="https://img.shields.io/badge/Dart-3.x-0175C2?logo=dart&logoColor=white" alt="Dart 3.x" />
   <img src="https://img.shields.io/badge/Platforms-Android%20%7C%20Linux%20%7C%20Windows%20%7C%20Web-4CAF50" alt="Platforms" />
@@ -142,6 +144,11 @@ flowchart TD
 ## 项目结构
 
 ```text
+.github/
+└── workflows/
+    ├── ci.yml                         # CI 质量检查（静态分析、测试覆盖率、Web 构建验证）
+    └── release.yml                    # 多平台构建打包与 GitHub Release 自动发布
+
 assets/
 ├── avatars/                           # 15 款矢量 SVG 头像（characters / animals / cyber）
 └── screenshots/                       # README 展示用界面与对局截图（不打包进应用体积）
@@ -260,6 +267,60 @@ flutter test
   flutter run -d windows
   flutter build windows --release
   ```
+
+---
+
+## 自动化构建与发版 (GitHub Actions)
+
+项目内置两套 GitHub Actions 工作流，覆盖日常质量门禁与多平台制品发布。
+
+### 1. CI 质量检查 (`ci.yml`)
+
+每次向 `master` / `main` 分支推送或提交 Pull Request（以及手动触发 `workflow_dispatch`）时自动运行：
+
+- **静态分析与测试**：执行 `flutter pub get`、`flutter analyze` 与 `flutter test --coverage`，并上传 `coverage-lcov`（`coverage/lcov.info`）测试覆盖率报告。
+- **Web 构建验证**：执行 `flutter build web --release`，确保纯静态 Web 端可正常打包。
+
+### 2. 多平台发行包统一构建 (`release.yml`)
+
+前置校验（`verify` 任务执行 `flutter analyze` 与 `flutter test`）通过后，并行构建各平台产物并汇总生成 `SHA256SUMS.txt`（聚合制品 `release-bundle`）：
+
+| 平台 | 运行环境 | Artifact 名称 | 发行包产物命名 | 备注 |
+| :--- | :--- | :--- | :--- | :--- |
+| **Android** | `ubuntu-latest` | `android-dist` | `word-guess-assistant-<version>-android-universal.apk`<br>`word-guess-assistant-<version>-android-arm64-v8a.apk`<br>`word-guess-assistant-<version>-android-armeabi-v7a.apk`<br>`word-guess-assistant-<version>-android-x86_64.apk`<br>`word-guess-assistant-<version>-android.aab` | 含通用 APK、分 ABI APK 与 AAB；未配置密钥时回退调试签名 |
+| **Windows (x64)** | `windows-latest` | `windows-dist` | `word-guess-assistant-<version>-windows-x64.zip` | 内含完整 Release 运行时与 `libwebrtc.dll` |
+| **Linux (x64)** | `ubuntu-latest` | `linux-dist` | `word-guess-assistant-<version>-linux-x64.tar.gz` | 打包 `bundle/` 可执行文件及 GTK/WebRTC 依赖库 |
+| **Web** | `ubuntu-latest` | `web-dist` | `word-guess-assistant-<version>-web.zip` | 纯静态站点打包，可直接部署至任意静态托管 |
+| **macOS（可选）** | `macos-latest` | `macos-dist` | `word-guess-assistant-<version>-macos-unsigned.zip` | 仅手动勾选 `include_macos` 时构建（未签名） |
+| **iOS（可选）** | `macos-latest` | `ios-dist` | `word-guess-assistant-<version>-ios-unsigned.ipa` | 仅手动勾选 `include_ios` 时构建（`--no-codesign` 未签名） |
+
+> [!NOTE]
+> **macOS / iOS 暂缓默认自动触发原因**：CI 环境在无苹果开发者证书与描述文件时仅能生成未签名产物（iOS `--no-codesign` `.ipa` 无法直接安装于未越狱真机，且仓库暂未纳入 `ios/Podfile` 锁定与 macOS 网络沙盒 Entitlements 配置）。为避免证书或工程配置缺失阻断主发布链路，二者设为 `workflow_dispatch` 可选触发且标记 `continue-on-error: true`。
+
+### 3. 发版方式
+
+- **推送 `v*` 标签自动发布**：推送符合 `v*` 格式的标签（如 `git tag v1.0.0 && git push origin v1.0.0`），工作流将自动完成校验、全量 Tier-1 平台打包、生成 `SHA256SUMS.txt` 并发布 GitHub Release（`Word Guess Assistant <tag>`）。
+- **Actions 页面手动触发 (`workflow_dispatch`)**：在仓库 **Actions → Release → Run workflow** 可手动触发，支持以下输入参数：
+
+| 输入参数 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `version_tag` | `string` | `''` | 自定义版本标签（如 `v1.0.0`）；留空则使用 `v<pubspec>-build.<run_number>` |
+| `include_macos` | `boolean` | `false` | 勾选后附加构建未签名 macOS `.zip` |
+| `include_ios` | `boolean` | `false` | 勾选后附加构建未签名 iOS `.ipa` |
+| `create_release` | `boolean` | `false` | 勾选后同步发布 GitHub Release；未勾选时仅上传 Workflow Artifacts（`v*` 标签推送始终自动发布） |
+
+### 4. Android 正式签名配置（可选）
+
+如需在 CI 中产出正式签名版 APK 与 AAB，请在仓库 **Settings → Secrets and variables → Actions** 中配置以下 4 个 Repository Secrets：
+
+| Secret 名称 | 说明 | 对应 `android/key.properties` 字段 |
+| :--- | :--- | :--- |
+| `ANDROID_KEYSTORE_BASE64` | `.jks` 签名文件的 Base64 编码字符串 | 解码写入 `android/app/upload-keystore.jks`（`storeFile=upload-keystore.jks`） |
+| `ANDROID_KEYSTORE_PASSWORD` | Keystore 密码 | `storePassword` |
+| `ANDROID_KEY_PASSWORD` | Key 密码 | `keyPassword` |
+| `ANDROID_KEY_ALIAS` | Key 别名 | `keyAlias` |
+
+当以上 4 个 Secrets 全部配置时，工作流会自动生成 `android/key.properties` 启用正式签名；若未配置或配置不完整，[`android/app/build.gradle.kts`](android/app/build.gradle.kts) 会安全回退至 `debug` 调试签名，确保 Fork 仓库与开箱构建零门槛运行。
 
 ---
 

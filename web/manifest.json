@@ -1,11 +1,11 @@
 {
-    "name": "word_guess_assistant_flutter",
-    "short_name": "word_guess_assistant_flutter",
+    "name": "猜词助手 - Word Guess Assistant",
+    "short_name": "猜词助手",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "猜词助手 - Word Guess Assistant",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -1,7 +1,17 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+val hasKeystoreConfig = keystorePropertiesFile.exists()
+if (hasKeystoreConfig) {
+    FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
 }
 
 android {
@@ -19,7 +29,7 @@ android {
         applicationId = "com.example.word_guess_assistant_flutter"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(flutter.minSdkVersion, 24)
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
@@ -29,11 +39,41 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasKeystoreConfig) {
+            val storeFilePath = keystoreProperties.getProperty("storeFile")?.trim().orEmpty()
+            val storePasswordValue = keystoreProperties.getProperty("storePassword")?.trim().orEmpty()
+            val keyAliasValue = keystoreProperties.getProperty("keyAlias")?.trim().orEmpty()
+            val keyPasswordValue = keystoreProperties.getProperty("keyPassword")?.trim().orEmpty()
+            if (
+                storeFilePath.isNotEmpty() &&
+                storePasswordValue.isNotEmpty() &&
+                keyAliasValue.isNotEmpty() &&
+                keyPasswordValue.isNotEmpty()
+            ) {
+                val appRelativeCandidate = file(storeFilePath)
+                val resolvedStoreFile =
+                    if (appRelativeCandidate.exists()) {
+                        appRelativeCandidate
+                    } else {
+                        rootProject.file(storeFilePath)
+                    }
+                if (resolvedStoreFile.exists()) {
+                    create("release") {
+                        storeFile = resolvedStoreFile
+                        storePassword = storePasswordValue
+                        keyAlias = keyAliasValue
+                        keyPassword = keyPasswordValue
+                    }
+                }
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Uses release signing from android/key.properties when present; falls back to debug signing in CI without secrets.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 }

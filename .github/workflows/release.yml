@@ -1,0 +1,439 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Release version tag (e.g. v1.0.0; empty uses v<pubspec>-build.<run_number>)'
+        required: false
+        type: string
+        default: ''
+      include_macos:
+        description: 'Include optional unsigned macOS build (macos-latest)'
+        required: false
+        type: boolean
+        default: false
+      include_ios:
+        description: 'Include optional unsigned iOS build (macos-latest, --no-codesign)'
+        required: false
+        type: boolean
+        default: false
+      create_release:
+        description: 'Publish GitHub Release on manual dispatch (always true for v* tags)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify & Resolve Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run static analysis
+        run: flutter analyze
+
+      - name: Run unit & widget tests
+        run: flutter test
+
+      - name: Resolve release version and tag
+        id: meta
+        env:
+          INPUT_VERSION_TAG: ${{ inputs.version_tag }}
+        run: |
+          PUBSPEC_VER=$(grep -E '^version:' pubspec.yaml | head -n1 | awk '{print $2}' | cut -d'+' -f1 | tr -d '[:space:]')
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            RAW_TAG="${GITHUB_REF_NAME}"
+          elif [[ -n "${INPUT_VERSION_TAG// /}" ]]; then
+            RAW_TAG="${INPUT_VERSION_TAG}"
+          else
+            RAW_TAG="v${PUBSPEC_VER}-build.${GITHUB_RUN_NUMBER}"
+          fi
+          SANITIZED=$(echo "${RAW_TAG}" | tr -d '[:space:]' | tr '/' '-')
+          VERSION="${SANITIZED#v}"
+          TAG="v${VERSION}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved version=${VERSION}, tag=${TAG}"
+
+  build-android:
+    name: Build Android (APK & AAB)
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Configure optional Android release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [[ -n "${ANDROID_KEYSTORE_BASE64}" && -n "${ANDROID_KEYSTORE_PASSWORD}" && -n "${ANDROID_KEY_PASSWORD}" && -n "${ANDROID_KEY_ALIAS}" ]]; then
+            echo "Configuring Android release keystore signing."
+            printf '%s' "${ANDROID_KEYSTORE_BASE64}" | tr -d '\r\n' | base64 --decode > android/app/upload-keystore.jks
+            {
+              printf 'storePassword=%s\n' "${ANDROID_KEYSTORE_PASSWORD}"
+              printf 'keyPassword=%s\n' "${ANDROID_KEY_PASSWORD}"
+              printf 'keyAlias=%s\n' "${ANDROID_KEY_ALIAS}"
+              printf 'storeFile=upload-keystore.jks\n'
+            } > android/key.properties
+          else
+            echo "Android signing secrets not fully configured; falling back to debug signing."
+          fi
+
+      - name: Build universal APK
+        run: flutter build apk --release
+
+      - name: Stage universal APK
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/word-guess-assistant-${VERSION}-android-universal.apk"
+
+      - name: Build split-per-ABI APKs
+        run: flutter build apk --release --split-per-abi
+
+      - name: Stage split-per-ABI APKs
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "dist/word-guess-assistant-${VERSION}-android-arm64-v8a.apk"
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "dist/word-guess-assistant-${VERSION}-android-armeabi-v7a.apk"
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk "dist/word-guess-assistant-${VERSION}-android-x86_64.apk"
+
+      - name: Build Android App Bundle (AAB)
+        run: flutter build appbundle --release
+
+      - name: Stage AAB and verify outputs
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          cp build/app/outputs/bundle/release/app-release.aab "dist/word-guess-assistant-${VERSION}-android.aab"
+          ls -lh dist/
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-dist
+          path: dist/*
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows (x64)
+    needs: verify
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Enable Windows desktop and install dependencies
+        run: |
+          flutter config --enable-windows-desktop
+          flutter pub get
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Package Windows release archive
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          $releaseDir = "build/windows/x64/runner/Release"
+          $exePath = "$releaseDir/word_guess_assistant_flutter.exe"
+          if (-not (Test-Path $exePath)) {
+            Write-Error "Missing expected Windows executable: $exePath"
+            exit 1
+          }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $zipPath = "dist/word-guess-assistant-$($env:VERSION)-windows-x64.zip"
+          Compress-Archive -Path "$releaseDir/*" -DestinationPath $zipPath -Force
+          Get-ChildItem dist
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: dist/*.zip
+          if-no-files-found: error
+
+  build-linux:
+    name: Build Linux (x64)
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libgtk-3-dev \
+            liblzma-dev \
+            libstdc++-12-dev \
+            libgbm1 \
+            libdrm2
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Enable Linux desktop and install dependencies
+        run: |
+          flutter config --enable-linux-desktop
+          flutter pub get
+
+      - name: Build Linux release
+        run: flutter build linux --release
+
+      - name: Package Linux release archive
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          BUNDLE_DIR="build/linux/x64/release/bundle"
+          BIN_PATH="${BUNDLE_DIR}/word_guess_assistant_flutter"
+          test -x "${BIN_PATH}"
+          STAGE_NAME="word-guess-assistant-${VERSION}-linux-x64"
+          mkdir -p "dist/${STAGE_NAME}"
+          cp -a "${BUNDLE_DIR}/." "dist/${STAGE_NAME}/"
+          tar -czf "dist/${STAGE_NAME}.tar.gz" -C dist "${STAGE_NAME}"
+          rm -rf "dist/${STAGE_NAME}"
+          ls -lh dist/
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-dist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  build-web:
+    name: Build Web
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Web release
+        run: flutter build web --release
+
+      - name: Package Web release archive
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          test -f build/web/index.html
+          mkdir -p dist
+          (cd build/web && zip -r "../../dist/word-guess-assistant-${VERSION}-web.zip" .)
+          ls -lh dist/
+
+      - name: Upload Web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: dist/*.zip
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS (Optional Unsigned)
+    needs: verify
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_macos == true }}
+    continue-on-error: true
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Enable macOS desktop and install dependencies
+        run: |
+          flutter config --enable-macos-desktop
+          flutter pub get
+
+      - name: Build macOS release (unsigned)
+        run: flutter build macos --release
+
+      - name: Package macOS release archive
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          RELEASE_DIR="build/macos/Build/Products/Release"
+          APP_PATH="$(find "${RELEASE_DIR}" -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "${APP_PATH}"
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "dist/word-guess-assistant-${VERSION}-macos-unsigned.zip"
+          ls -lh dist/
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dist
+          path: dist/*.zip
+          if-no-files-found: error
+
+  build-ios:
+    name: Build iOS (Optional Unsigned)
+    needs: verify
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_ios == true }}
+    continue-on-error: true
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build iOS release (no codesign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          test -d "${APP_PATH}"
+          mkdir -p dist stage/Payload
+          cp -R "${APP_PATH}" stage/Payload/
+          (cd stage && zip -r "../dist/word-guess-assistant-${VERSION}-ios-unsigned.ipa" Payload)
+          rm -rf stage
+          ls -lh dist/
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-dist
+          path: dist/*.ipa
+          if-no-files-found: error
+
+  publish-release:
+    name: Bundle & Publish Release
+    needs:
+      - verify
+      - build-android
+      - build-windows
+      - build-linux
+      - build-web
+      - build-macos
+      - build-ios
+    if: ${{ always() && !cancelled() && needs.verify.result == 'success' && needs.build-android.result == 'success' && needs.build-windows.result == 'success' && needs.build-linux.result == 'success' && needs.build-web.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS.txt
+        run: |
+          cd release-assets
+          ls -lh
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\n' | sort | xargs sha256sum > ../SHA256SUMS.txt
+          mv ../SHA256SUMS.txt ./SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload combined release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: release-assets/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.create_release == true }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.verify.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Word Guess Assistant ${{ needs.verify.outputs.tag }}
+          generate_release_notes: true
+          files: release-assets/*
