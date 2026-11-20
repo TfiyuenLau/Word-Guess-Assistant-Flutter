@@ -9,8 +9,8 @@ class GameEngine {
   String wordA = '';
   String wordB = '';
   String hint = '';
-  String theme = '全部主题';
-  String similarityLevel = '极为接近';
+  String theme = WordBank.randomCategory;
+  String similarityLevel = WordBank.randomSimilarity;
 
   final Map<String, Player> players = {};
   final Map<String, String> votes = {}; // voterId -> targetId
@@ -151,6 +151,7 @@ class GameEngine {
   Map<String, IdentityAssignment> startGame({
     String? customTheme,
     String? customSimilarity,
+    PresetWordPair? presetPair,
   }) {
     final playerList = players.values.where((p) => p.role != GameRoles.spectator).toList();
     if (playerList.length < 4) {
@@ -161,10 +162,20 @@ class GameEngine {
     }
 
     reset();
-    theme = customTheme ?? '全部主题';
-    similarityLevel = customSimilarity ?? '极为接近';
+    theme = (customTheme != null && customTheme.trim().isNotEmpty)
+        ? customTheme.trim()
+        : (presetPair?.category.trim().isNotEmpty == true
+            ? presetPair!.category.trim()
+            : WordBank.randomCategory);
+    similarityLevel =
+        (customSimilarity != null && customSimilarity.trim().isNotEmpty)
+            ? customSimilarity.trim()
+            : (presetPair?.similarity.trim().isNotEmpty == true
+                ? presetPair!.similarity.trim()
+                : WordBank.randomSimilarity);
 
-    final pair = WordBank.generateWords(theme: theme, similarity: similarityLevel);
+    final pair = presetPair ??
+        WordBank.generateWords(theme: theme, similarity: similarityLevel);
     wordA = pair.wordA;
     wordB = pair.wordB;
     hint = pair.hint;
@@ -685,8 +696,9 @@ class GameEngine {
     wordA = map['word_a']?.toString() ?? '';
     wordB = map['word_b']?.toString() ?? '';
     hint = map['hint']?.toString() ?? '';
-    theme = map['theme']?.toString() ?? '全部主题';
-    similarityLevel = map['similarity_level']?.toString() ?? '极为接近';
+    theme = map['theme']?.toString() ?? WordBank.randomCategory;
+    similarityLevel =
+        map['similarity_level']?.toString() ?? WordBank.randomSimilarity;
     winner = map['winner']?.toString();
 
     final playersMap = map['players'] as Map<String, dynamic>? ?? {};

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'controllers/theme_controller.dart';
+import 'models/word_bank.dart';
 import 'ui/screens/home_screen.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await WordBank.load();
   runApp(const ProviderScope(child: WordGuessAssistantApp()));
 }
 

@@ -1,8 +1,14 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:word_guess_assistant_flutter/core/game_engine.dart';
 import 'package:word_guess_assistant_flutter/models/game_models.dart';
+import 'package:word_guess_assistant_flutter/models/word_bank.dart';
 
 void main() {
+  setUpAll(() {
+    WordBank.loadFromJsonString(File('assets/word_bank.json').readAsStringSync());
+  });
+
   group('GameEngine Core Rules & Matrix Tests', () {
     test('4~12 人动态身份配比矩阵完整性测试', () {
       // 期望配比矩阵：(总人数, 卧底, 天使, 白板, 好人)

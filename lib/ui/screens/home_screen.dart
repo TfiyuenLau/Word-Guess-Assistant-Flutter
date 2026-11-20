@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../controllers/game_controller.dart';
 import '../modals/avatar_picker_dialog.dart';
 import '../modals/rule_dialog.dart';
-import '../modals/theme_picker_dialog.dart';
+import '../modals/settings_dialog.dart';
 import '../widgets/avatar_widget.dart';
 import 'room_screen.dart';
 
@@ -126,12 +126,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
         actions: [
           IconButton(
-            tooltip: '主题',
-            icon: const Icon(Icons.palette_outlined),
+            tooltip: '设置',
+            icon: const Icon(Icons.settings_outlined),
             onPressed: () {
               showDialog(
                 context: context,
-                builder: (_) => const ThemePickerDialog(),
+                builder: (_) => const SettingsDialog(),
               );
             },
           ),

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:word_guess_assistant_flutter/controllers/game_controller.dart';
 import 'package:word_guess_assistant_flutter/models/game_models.dart';
+import 'package:word_guess_assistant_flutter/models/word_bank.dart';
 
 Future<int> _pickFreePort() async {
   final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
@@ -29,6 +30,10 @@ Future<void> _waitUntil(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() {
+    WordBank.loadFromJsonString(File('assets/word_bank.json').readAsStringSync());
+  });
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});

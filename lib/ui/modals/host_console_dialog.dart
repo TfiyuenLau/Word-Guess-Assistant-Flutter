@@ -6,7 +6,13 @@ import '../../models/word_bank.dart';
 class HostConsoleDialog extends StatefulWidget {
   final int playerCount;
   final GamePhase currentPhase;
-  final void Function(String theme, String similarity) onStartGame;
+  final bool llmConfigured;
+  final VoidCallback? onOpenSettings;
+  final Future<String?> Function(
+    WordSourceMode mode,
+    String theme,
+    String similarity,
+  ) onStartGame;
   final VoidCallback onAdvancePhase;
   final VoidCallback onResetGame;
   final ValueChanged<int> onAddBots;
@@ -17,6 +23,8 @@ class HostConsoleDialog extends StatefulWidget {
     super.key,
     required this.playerCount,
     required this.currentPhase,
+    this.llmConfigured = false,
+    this.onOpenSettings,
     required this.onStartGame,
     required this.onAdvancePhase,
     required this.onResetGame,
@@ -30,14 +38,29 @@ class HostConsoleDialog extends StatefulWidget {
 }
 
 class _HostConsoleDialogState extends State<HostConsoleDialog> {
-  String _selectedTheme = '全部主题';
-  String _selectedSimilarity = '极为接近';
+  WordSourceMode _sourceMode = WordSourceMode.localJson;
+  String _selectedTheme = WordBank.randomCategory;
+  String _selectedSimilarity = WordBank.randomSimilarity;
+  final _aigcTopicController = TextEditingController();
+
+  bool _isStarting = false;
+  String? _startError;
   late int _displayCount;
 
   @override
   void initState() {
     super.initState();
     _displayCount = widget.playerCount;
+    if (!WordBank.isLoaded) {
+      WordBank.load().then((_) {
+        if (!mounted) return;
+        setState(() {
+          if (!WordBank.categories.contains(_selectedTheme)) {
+            _selectedTheme = WordBank.randomCategory;
+          }
+        });
+      }).catchError((_) {});
+    }
   }
 
   @override
@@ -46,6 +69,12 @@ class _HostConsoleDialogState extends State<HostConsoleDialog> {
     if (oldWidget.playerCount != widget.playerCount) {
       _displayCount = widget.playerCount;
     }
+  }
+
+  @override
+  void dispose() {
+    _aigcTopicController.dispose();
+    super.dispose();
   }
 
   void _addBots(int count) {
@@ -76,6 +105,30 @@ class _HostConsoleDialogState extends State<HostConsoleDialog> {
     });
   }
 
+  Future<void> _handleStartGame() async {
+    final chosenTheme = _sourceMode == WordSourceMode.aigc
+        ? _aigcTopicController.text.trim()
+        : _selectedTheme;
+    setState(() {
+      _isStarting = true;
+      _startError = null;
+    });
+    final error = await widget.onStartGame(
+      _sourceMode,
+      chosenTheme,
+      _selectedSimilarity,
+    );
+    if (!mounted) return;
+    if (error == null) {
+      Navigator.of(context).pop();
+    } else {
+      setState(() {
+        _isStarting = false;
+        _startError = error;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -85,8 +138,16 @@ class _HostConsoleDialogState extends State<HostConsoleDialog> {
     final countColor = _displayCount >= 4
         ? (isDark ? Colors.green.shade300 : Colors.green.shade700)
         : (isDark ? Colors.orange.shade300 : Colors.orange.shade700);
+    final categories = WordBank.categories;
+    final safeCategory =
+        categories.contains(_selectedTheme) ? _selectedTheme : categories.first;
+    final similarities = WordBank.similarities;
+    final safeSimilarity = similarities.contains(_selectedSimilarity)
+        ? _selectedSimilarity
+        : similarities.first;
 
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       title: Row(
         children: [
           Icon(Icons.tune, size: 20, color: theme.colorScheme.primary),
@@ -116,33 +177,151 @@ class _HostConsoleDialogState extends State<HostConsoleDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (isPreparing) ...[
-              DropdownButtonFormField<String>(
-                initialValue: _selectedTheme,
-                decoration: const InputDecoration(
-                  labelText: '主题',
-                  isDense: true,
-                ),
-                items: WordBank.categories.map((c) {
-                  return DropdownMenuItem(value: c, child: Text(c));
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) setState(() => _selectedTheme = val);
-                },
+              SegmentedButton<WordSourceMode>(
+                segments: const [
+                  ButtonSegment(
+                    value: WordSourceMode.localJson,
+                    icon: Icon(Icons.library_books_outlined, size: 17),
+                    label: Text('本地词库', maxLines: 1),
+                  ),
+                  ButtonSegment(
+                    value: WordSourceMode.aigc,
+                    icon: Icon(Icons.auto_awesome_outlined, size: 17),
+                    label: Text('AIGC', maxLines: 1),
+                  ),
+                ],
+                selected: {_sourceMode},
+                onSelectionChanged: _isStarting
+                    ? null
+                    : (set) {
+                        setState(() {
+                          _sourceMode = set.first;
+                          _startError = null;
+                        });
+                      },
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: _selectedSimilarity,
-                decoration: const InputDecoration(
-                  labelText: '相似度',
-                  isDense: true,
+              if (_sourceMode == WordSourceMode.localJson) ...[
+                DropdownButtonFormField<String>(
+                  initialValue: safeCategory,
+                  decoration: const InputDecoration(
+                    labelText: '主题',
+                    isDense: true,
+                  ),
+                  items: categories.map((c) {
+                    return DropdownMenuItem(value: c, child: Text(c));
+                  }).toList(),
+                  onChanged: _isStarting
+                      ? null
+                      : (val) {
+                          if (val != null) setState(() => _selectedTheme = val);
+                        },
                 ),
-                items: WordBank.similarities.map((s) {
-                  return DropdownMenuItem(value: s, child: Text(s));
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) setState(() => _selectedSimilarity = val);
-                },
-              ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: safeSimilarity,
+                  decoration: const InputDecoration(
+                    labelText: '相似度',
+                    isDense: true,
+                  ),
+                  items: similarities.map((s) {
+                    return DropdownMenuItem(value: s, child: Text(s));
+                  }).toList(),
+                  onChanged: _isStarting
+                      ? null
+                      : (val) {
+                          if (val != null) {
+                            setState(() => _selectedSimilarity = val);
+                          }
+                        },
+                ),
+              ] else ...[
+                if (!widget.llmConfigured) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: (isDark
+                              ? Colors.orange.shade300
+                              : Colors.orange.shade700)
+                          .withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          size: 18,
+                          color: isDark
+                              ? Colors.orange.shade300
+                              : Colors.orange.shade800,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            '未配置 API Key',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: isDark
+                                  ? Colors.orange.shade200
+                                  : Colors.orange.shade900,
+                            ),
+                          ),
+                        ),
+                        if (widget.onOpenSettings != null)
+                          TextButton(
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              minimumSize: const Size(0, 32),
+                            ),
+                            onPressed: _isStarting ? null : widget.onOpenSettings,
+                            child: const Text('去设置'),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                TextField(
+                  controller: _aigcTopicController,
+                  enabled: !_isStarting,
+                  onChanged: (_) {
+                    if (_startError != null) {
+                      setState(() => _startError = null);
+                    }
+                  },
+                  decoration: const InputDecoration(
+                    labelText: '主题词',
+                    hintText: '如：科幻电影、咖啡饮品（留空随机）',
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: safeSimilarity,
+                  decoration: const InputDecoration(
+                    labelText: '相似度',
+                    isDense: true,
+                  ),
+                  items: similarities.map((s) {
+                    return DropdownMenuItem(value: s, child: Text(s));
+                  }).toList(),
+                  onChanged: _isStarting
+                      ? null
+                      : (val) {
+                          if (val != null) {
+                            setState(() => _selectedSimilarity = val);
+                          }
+                        },
+                ),
+              ],
               const SizedBox(height: 14),
               Row(
                 children: [
@@ -151,7 +330,9 @@ class _HostConsoleDialogState extends State<HostConsoleDialog> {
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 6),
                       ),
-                      onPressed: _displayCount < 12 ? () => _addBots(1) : null,
+                      onPressed: (!_isStarting && _displayCount < 12)
+                          ? () => _addBots(1)
+                          : null,
                       child: const Text('+1'),
                     ),
                   ),
@@ -161,7 +342,9 @@ class _HostConsoleDialogState extends State<HostConsoleDialog> {
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 6),
                       ),
-                      onPressed: _displayCount < 12 ? () => _addBots(3) : null,
+                      onPressed: (!_isStarting && _displayCount < 12)
+                          ? () => _addBots(3)
+                          : null,
                       child: const Text('+3'),
                     ),
                   ),
@@ -172,39 +355,79 @@ class _HostConsoleDialogState extends State<HostConsoleDialog> {
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 6),
                       ),
-                      onPressed: _displayCount < 8 ? _fillToEight : null,
+                      onPressed: (!_isStarting && _displayCount < 8)
+                          ? _fillToEight
+                          : null,
                       child: const Text('补至8人'),
                     ),
                   ),
                   const SizedBox(width: 6),
                   IconButton.outlined(
                     tooltip: '清空机器人',
-                    onPressed: _clearBots,
+                    onPressed: _isStarting ? null : _clearBots,
                     icon: const Icon(Icons.delete_outline, size: 18),
                   ),
                 ],
               ),
+              if (_startError != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.errorContainer
+                        .withValues(alpha: isDark ? 0.35 : 0.8),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: theme.colorScheme.error.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 18,
+                        color: theme.colorScheme.error,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _startError!,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: theme.colorScheme.onErrorContainer,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               FilledButton.icon(
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(46),
                 ),
-                onPressed: canStart
-                    ? () {
-                        Navigator.of(context).pop();
-                        widget.onStartGame(
-                          _selectedTheme,
-                          _selectedSimilarity,
-                        );
-                      }
-                    : null,
-                icon: const Icon(Icons.play_arrow, size: 20),
+                onPressed: (canStart && !_isStarting) ? _handleStartGame : null,
+                icon: _isStarting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.play_arrow, size: 20),
                 label: Text(
-                  _displayCount < 4
-                      ? '至少需要 4 人'
-                      : _displayCount > 12
-                          ? '人数上限 12 人'
-                          : '开始游戏',
+                  _isStarting
+                      ? '生成词组中...'
+                      : _displayCount < 4
+                          ? '至少需要 4 人'
+                          : _displayCount > 12
+                              ? '人数上限 12 人'
+                              : '开始游戏',
                 ),
               ),
             ] else ...[
@@ -261,7 +484,7 @@ class _HostConsoleDialogState extends State<HostConsoleDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _isStarting ? null : () => Navigator.of(context).pop(),
           child: const Text('关闭'),
         ),
       ],

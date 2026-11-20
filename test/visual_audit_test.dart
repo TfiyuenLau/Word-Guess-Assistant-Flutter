@@ -10,9 +10,12 @@ import 'package:word_guess_assistant_flutter/controllers/game_controller.dart';
 import 'package:word_guess_assistant_flutter/controllers/theme_controller.dart';
 import 'package:word_guess_assistant_flutter/models/game_models.dart';
 import 'package:word_guess_assistant_flutter/models/protocol_messages.dart';
+import 'package:word_guess_assistant_flutter/models/word_bank.dart';
+import 'package:word_guess_assistant_flutter/ui/modals/host_console_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/identity_card_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/player_mark_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/settlement_dialog.dart';
+import 'package:word_guess_assistant_flutter/ui/modals/settings_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/screens/home_screen.dart';
 import 'package:word_guess_assistant_flutter/ui/screens/room_screen.dart';
 
@@ -238,6 +241,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
+    WordBank.loadFromJsonString(File('assets/word_bank.json').readAsStringSync());
     await _loadAuditFonts();
   });
 
@@ -273,6 +277,18 @@ void main() {
       );
     }
 
+    Widget overlayOnHome(Widget dialog) {
+      return wrap(
+        Stack(
+          children: [
+            const IgnorePointer(child: HomeScreen()),
+            const ModalBarrier(dismissible: false, color: Colors.black54),
+            Center(child: dialog),
+          ],
+        ),
+      );
+    }
+
     Widget overlayOnRoom(Widget dialog, RoomState room) {
       final ctrl = _StaticRoomController(room);
       return wrap(
@@ -297,6 +313,31 @@ void main() {
       await tester.pumpWidget(wrap(const HomeScreen()));
       await tester.pumpAndSettle();
       await _capture(tester, boundaryKey, 'home_mobile.png');
+
+      // 1b. SettingsDialog overlaid on HomeScreen Mobile Light (390x844)
+      await tester.pumpWidget(overlayOnHome(const SettingsDialog()));
+      await tester.pumpAndSettle();
+      await _capture(tester, boundaryKey, 'settings_mobile.png');
+
+      // 1c. HostConsoleDialog overlaid on preparing RoomScreen Mobile Light (390x844)
+      await tester.pumpWidget(
+        overlayOnRoom(
+          HostConsoleDialog(
+            playerCount: 4,
+            currentPhase: GamePhase.preparing,
+            llmConfigured: false,
+            onOpenSettings: () {},
+            onStartGame: (_, _, _) async => null,
+            onAdvancePhase: () {},
+            onResetGame: () {},
+            onAddBots: (_) {},
+            onClearBots: () {},
+          ),
+          _makeRoom(phase: GamePhase.preparing),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _capture(tester, boundaryKey, 'host_console_mobile.png');
 
       // 2. IdentityCardDialog overlaid on RoomScreen Mobile Light (390x844)
       await tester.pumpWidget(

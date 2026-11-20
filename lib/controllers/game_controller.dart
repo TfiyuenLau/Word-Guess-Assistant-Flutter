@@ -6,9 +6,12 @@ import '../core/game_engine.dart';
 import '../core/mock_bots.dart';
 import '../models/game_models.dart';
 import '../models/protocol_messages.dart';
+import '../models/word_bank.dart';
 import '../network/game_transport.dart';
 import '../network/lan/lan_transport.dart';
 import '../network/p2p/webrtc_transport.dart';
+import '../services/llm_word_service.dart';
+import 'settings_controller.dart';
 
 /// 房间与博弈全局响应式状态模型
 class RoomState {
@@ -751,14 +754,62 @@ class GameController extends StateNotifier<RoomState> {
 
   // --- 游戏流程交互动作 ---
 
-  /// 房主：开始游戏
-  Future<void> startGame({String? theme, String? similarity}) async {
-    if (!state.isHost || _hostEngine == null) return;
+  /// 房主：开始游戏（返回 null 表示成功，否则返回错误提示）
+  Future<String?> startGame({
+    WordSourceMode sourceMode = WordSourceMode.localJson,
+    String theme = WordBank.randomCategory,
+    String similarity = WordBank.randomSimilarity,
+    LlmSettings? llmSettings,
+    LlmWordService? llmService,
+  }) async {
+    if (!state.isHost || _hostEngine == null) {
+      return '仅房主可开始游戏';
+    }
+
+    state = state.copyWith(errorMessage: null);
+
+    final activePlayers = _hostEngine!.players.values
+        .where((p) => p.role != GameRoles.spectator)
+        .length;
+    if (activePlayers < 4) {
+      final msg = '人数不足，至少需要 4 名玩家（当前 $activePlayers 人）';
+      state = state.copyWith(errorMessage: msg);
+      return msg;
+    }
+    if (activePlayers > 12) {
+      final msg = '人数超限，单局最多支持 12 名玩家（当前 $activePlayers 人）';
+      state = state.copyWith(errorMessage: msg);
+      return msg;
+    }
+
+    final ownsService = llmService == null;
+    LlmWordService? tempService;
 
     try {
+      final PresetWordPair pair;
+      if (sourceMode == WordSourceMode.localJson) {
+        if (!WordBank.isLoaded) {
+          await WordBank.load();
+        }
+        pair = WordBank.generateWords(theme: theme, similarity: similarity);
+      } else {
+        final settings = llmSettings ?? const LlmSettings();
+        final service = llmService ?? (tempService = LlmWordService());
+        pair = await service.generateWordPair(
+          settings: settings,
+          topic: theme,
+          similarity: similarity,
+        );
+      }
+
+      if (!mounted || !state.isHost || _hostEngine == null) {
+        return '房间状态已变更';
+      }
+
       final assignments = _hostEngine!.startGame(
         customTheme: theme,
         customSimilarity: similarity,
+        presetPair: pair,
       );
 
       state = state.copyWith(
@@ -794,9 +845,35 @@ class GameController extends StateNotifier<RoomState> {
       _syncHostStateToAll(announcement: startNotice);
       _broadcastSystemChat(startNotice);
       _driveBotSpeeches();
+      return null;
     } catch (e) {
-      state = state.copyWith(errorMessage: e.toString());
+      final msg = _formatStartError(e);
+      if (mounted) {
+        state = state.copyWith(errorMessage: msg);
+      }
+      return msg;
+    } finally {
+      if (ownsService) {
+        tempService?.dispose();
+      }
     }
+  }
+
+  String _formatStartError(Object error) {
+    var msg = error.toString().trim();
+    const prefixes = [
+      'Bad state: ',
+      'Exception: ',
+      'FormatException: ',
+      'Invalid argument(s): ',
+    ];
+    for (final prefix in prefixes) {
+      if (msg.startsWith(prefix)) {
+        msg = msg.substring(prefix.length).trim();
+        break;
+      }
+    }
+    return msg.isEmpty ? '开始游戏失败，请重试' : msg;
   }
 
   /// 房主：推进至下一阶段

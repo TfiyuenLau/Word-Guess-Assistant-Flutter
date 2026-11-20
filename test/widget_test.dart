@@ -1,12 +1,15 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:word_guess_assistant_flutter/controllers/game_controller.dart';
+import 'package:word_guess_assistant_flutter/controllers/settings_controller.dart';
 import 'package:word_guess_assistant_flutter/controllers/theme_controller.dart';
 import 'package:word_guess_assistant_flutter/main.dart';
 import 'package:word_guess_assistant_flutter/models/game_models.dart';
 import 'package:word_guess_assistant_flutter/models/protocol_messages.dart';
+import 'package:word_guess_assistant_flutter/models/word_bank.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/avatar_picker_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/blank_guess_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/host_console_dialog.dart';
@@ -17,7 +20,7 @@ import 'package:word_guess_assistant_flutter/ui/modals/player_mark_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/player_roster_sheet.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/rule_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/settlement_dialog.dart';
-import 'package:word_guess_assistant_flutter/ui/modals/theme_picker_dialog.dart';
+import 'package:word_guess_assistant_flutter/ui/modals/settings_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/vote_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/screens/room_screen.dart';
 import 'package:word_guess_assistant_flutter/ui/widgets/avatar_widget.dart';
@@ -202,6 +205,10 @@ RoomState _sampleRoomState({
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  setUpAll(() {
+    WordBank.loadFromJsonString(File('assets/word_bank.json').readAsStringSync());
+  });
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
   });
@@ -258,12 +265,38 @@ void main() {
       await tester.tap(find.text('确定'));
       await tester.pumpAndSettle();
 
-      // Tap palette button -> opens ThemePickerDialog with 浅色 first
-      await tester.tap(find.byIcon(Icons.palette_outlined));
+      // Tap settings gear button -> opens SettingsDialog with theme chips & LLM API defaults
+      await tester.tap(find.byIcon(Icons.settings_outlined));
       await tester.pumpAndSettle();
-      expect(find.byType(ThemePickerDialog), findsOneWidget);
+      expect(find.byType(SettingsDialog), findsOneWidget);
+      expect(find.text('设置'), findsOneWidget);
+      expect(find.text('主题'), findsOneWidget);
       expect(find.text('浅色'), findsOneWidget);
       expect(find.text('暗夜'), findsOneWidget);
+      expect(find.text('AIGC 接口'), findsOneWidget);
+
+      final urlField = tester.widget<TextField>(
+        find.widgetWithText(TextField, 'API 地址'),
+      );
+      final keyField = tester.widget<TextField>(
+        find.widgetWithText(TextField, 'API Key'),
+      );
+      final modelField = tester.widget<TextField>(
+        find.widgetWithText(TextField, '模型名称'),
+      );
+      expect(urlField.controller?.text, LlmSettings.defaultApiUrl);
+      expect(keyField.controller?.text, '');
+      expect(modelField.controller?.text, LlmSettings.defaultModel);
+
+      // Switch theme to 暗夜 live, then back to 浅色 and close
+      await tester.tap(find.text('暗夜'));
+      await tester.pumpAndSettle();
+      expect(
+        Theme.of(tester.element(find.byType(SettingsDialog))).brightness,
+        Brightness.dark,
+      );
+      await tester.tap(find.text('浅色'));
+      await tester.pumpAndSettle();
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
 
@@ -602,6 +635,94 @@ void main() {
       await tester.tap(find.text('提交'));
       await tester.pumpAndSettle();
       expect(chosenBlank, ('咖啡', '奶茶'));
+    });
+
+    testWidgets('HostConsoleDialog switches cleanly between 本地词库 (JSON categories) and AIGC (custom topic)', (tester) async {
+      WordSourceMode? submittedMode;
+      String? submittedTheme;
+      String? submittedSimilarity;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeNotifier().getThemeData(AppThemeType.light),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () => showDialog(
+                  context: context,
+                  builder: (_) => HostConsoleDialog(
+                    playerCount: 4,
+                    currentPhase: GamePhase.preparing,
+                    llmConfigured: false,
+                    onOpenSettings: () {},
+                    onStartGame: (mode, theme, similarity) async {
+                      submittedMode = mode;
+                      submittedTheme = theme;
+                      submittedSimilarity = similarity;
+                      if (theme == '触发错误') {
+                        return '请先配置 API Key';
+                      }
+                      return null;
+                    },
+                    onAdvancePhase: () {},
+                    onResetGame: () {},
+                    onAddBots: (_) {},
+                    onClearBots: () {},
+                  ),
+                ),
+                child: const Text('open_host'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // 1. Open dialog -> defaults to 本地词库 with JSON categories
+      await tester.tap(find.text('open_host'));
+      await tester.pumpAndSettle();
+      expect(find.byType(HostConsoleDialog), findsOneWidget);
+      expect(find.text('本地词库'), findsOneWidget);
+      expect(find.text('AIGC'), findsOneWidget);
+
+      // Open category dropdown and choose 食物 from assets/word_bank.json
+      await tester.tap(find.widgetWithText(DropdownButtonFormField<String>, '主题'));
+      await tester.pumpAndSettle();
+      expect(find.text('食物').last, findsOneWidget);
+      expect(find.text('家具').last, findsOneWidget);
+      await tester.tap(find.text('食物').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('开始游戏'));
+      await tester.pumpAndSettle();
+      expect(submittedMode, WordSourceMode.localJson);
+      expect(submittedTheme, '食物');
+      expect(submittedSimilarity, WordBank.randomSimilarity);
+      expect(find.byType(HostConsoleDialog), findsNothing);
+
+      // 2. Re-open dialog -> switch to AIGC, check warning + custom topic + inline error
+      await tester.tap(find.text('open_host'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('AIGC'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('未配置 API Key'), findsOneWidget);
+      expect(find.text('去设置'), findsOneWidget);
+      expect(find.widgetWithText(TextField, '主题词'), findsOneWidget);
+
+      await tester.enterText(find.widgetWithText(TextField, '主题词'), '触发错误');
+      await tester.tap(find.text('开始游戏'));
+      await tester.pumpAndSettle();
+      expect(find.byType(HostConsoleDialog), findsOneWidget);
+      expect(find.text('请先配置 API Key'), findsOneWidget);
+
+      await tester.enterText(find.widgetWithText(TextField, '主题词'), '太空探索');
+      await tester.ensureVisible(find.text('开始游戏'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('开始游戏'));
+      await tester.pumpAndSettle();
+      expect(submittedMode, WordSourceMode.aigc);
+      expect(submittedTheme, '太空探索');
+      expect(find.byType(HostConsoleDialog), findsNothing);
     });
   });
 }

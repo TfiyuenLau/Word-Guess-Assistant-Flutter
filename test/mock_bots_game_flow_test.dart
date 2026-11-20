@@ -1,9 +1,15 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:word_guess_assistant_flutter/core/game_engine.dart';
 import 'package:word_guess_assistant_flutter/core/mock_bots.dart';
 import 'package:word_guess_assistant_flutter/models/game_models.dart';
+import 'package:word_guess_assistant_flutter/models/word_bank.dart';
 
 void main() {
+  setUpAll(() {
+    WordBank.loadFromJsonString(File('assets/word_bank.json').readAsStringSync());
+  });
+
   group('Mock Bots & Complete Game Flow Integration Tests', () {
     test('单人创建房间并填充 3 名 Mock Bot 跑通全闭环博弈流转', () {
       final engine = GameEngine();

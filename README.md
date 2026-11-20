@@ -21,7 +21,10 @@
 
 ## 核心特性
 
-- **移动端优先 + 全端响应式布局**：手机端提供全屏沉浸式体验，桌面与 Web 端随窗口尺寸自适应切换单/双栏布局；默认采用清爽**浅色**主题，支持 **5 套 Material 3 主题**（浅色、暗夜、赛博、深海、森林）实时热切并本地持久化。
+- **移动端优先 + 全端响应式布局**：手机端提供全屏沉浸式体验，桌面与 Web 端随窗口尺寸自适应切换单/双栏布局；默认采用清爽**浅色**主题，首页右上角「设置中心」集成 **5 套 Material 3 主题**（浅色、暗夜、赛博、深海、森林）实时热切与本地持久化。
+- **本地 JSON 词库 + AIGC 实时出题双模式**：
+  - **本地词库（`assets/word_bank.json`）**：内置 64 组经筛选的中文双词与白板提示，涵盖 `食物`、`家具`、`科技数码`、`自然植物`、`日常生活`、`交通出行`、`文体娱乐`、`文化历史` 8 大分类与两档相似度，完全脱离硬编码、全平台开箱即用。
+  - **AIGC 实时生成**：房主控制台支持一键切换至 `AIGC` 模式并输入自定义主题词，通过兼容 OpenAI Chat Completions Tool Calling 的接口（默认 `ChatAnywhere` + `deepseek-v4.1-flash-1017`，可在首页设置中自定义 API 地址、Key 与模型）实时生成双词与提示。
 - **全屏即时通讯式对局体验**：房间内采用纯聊天流交互，点击玩家头像即可弹出本地推理标记框，已出局玩家标记 `OUT` 并禁用操作，阶段切换自动弹窗确认，房主通过悬浮控制按钮推进流程。
 - **双模联机架构**：
   - **4 位房间号（WebRTC P2P）**：全平台（含纯静态 Web）可用，基于公共 EMQX MQTT over WSS（`mqtt` 子协议，内置国际 `broker.emqx.io` / 国内 `broker-cn.emqx.io` 节点自动故障切换）与公共 STUN 服务，免公网 IP 跨网点对点直连。
@@ -42,6 +45,16 @@
       <sub>主界面（房间号 / 局域网切换）</sub>
     </td>
     <td align="center">
+      <img src="assets/screenshots/settings_mobile.png" width="240" alt="统一设置中心（主题 + AIGC 接口配置）" /><br />
+      <sub>统一设置中心（主题 + AIGC 接口配置）</sub>
+    </td>
+    <td align="center">
+      <img src="assets/screenshots/host_console_mobile.png" width="240" alt="房主发词控制台（本地词库 / AIGC 双模式）" /><br />
+      <sub>房主发词控制台（本地词库 / AIGC 双模式）</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
       <img src="assets/screenshots/identity_card_mobile.png" width="240" alt="查看盲盒底牌词语" /><br />
       <sub>查看盲盒底牌词语</sub>
     </td>
@@ -49,12 +62,12 @@
       <img src="assets/screenshots/room_chat_mobile.png" width="240" alt="全屏 IM 对局与描述发言" /><br />
       <sub>全屏 IM 对局与描述发言</sub>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <img src="assets/screenshots/player_mark_mobile.png" width="240" alt="点击头像本地推理标记" /><br />
       <sub>点击头像本地推理标记</sub>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <img src="assets/screenshots/room_voting_mobile.png" width="240" alt="白天匿名投票阶段" /><br />
       <sub>白天匿名投票阶段</sub>
@@ -63,6 +76,7 @@
       <img src="assets/screenshots/settlement_mobile.png" width="240" alt="终局战报与全员身份揭晓" /><br />
       <sub>终局战报与全员身份揭晓</sub>
     </td>
+    <td></td>
   </tr>
 </table>
 
@@ -151,17 +165,20 @@ flowchart TD
 
 assets/
 ├── avatars/                           # 15 款矢量 SVG 头像（characters / animals / cyber）
-└── screenshots/                       # README 展示用界面与对局截图（不打包进应用体积）
+├── screenshots/                       # README 展示用界面与对局截图（不打包进应用体积）
+└── word_bank.json                     # 64 组 8 分类离线 JSON 双词题库（打包至全平台资源）
 
 lib/
-├── main.dart                          # 应用入口、Riverpod 注入与自适应窗口/主题装配
+├── main.dart                          # 应用入口、JSON 词库预加载、Riverpod 注入与主题装配
 ├── models/
 │   ├── game_models.dart               # 阶段枚举、角色常量、Player、IdentityAssignment 与战报模型
 │   ├── protocol_messages.dart         # 4 字节帧长前缀 + UTF-8 JSON 统一编解码与消息信封
-│   └── word_bank.dart                 # 内置 27 组双词题库（7 大主题分类、2 档相似度）
+│   └── word_bank.dart                 # 基于 assets/word_bank.json 的离线词库加载器（全端兼容）
 ├── core/
 │   ├── game_engine.dart               # 纯 Dart 权威博弈引擎（配比/盲盒/公投/逆袭/夜间/胜负/脱敏）
 │   └── mock_bots.dart                 # 虚拟 AI 玩家生成与自动发言/投票/夜晚行动/猜词模拟
+├── services/
+│   └── llm_word_service.dart          # 基于 OpenAI Tool Calling 的 AIGC 实时双词生成服务
 ├── network/
 │   ├── game_transport.dart            # 抽象双工传输接口（Host / Client）
 │   ├── lan/
@@ -175,17 +192,18 @@ lib/
 │       └── webrtc_transport.dart      # 基于 flutter_webrtc 的星型拓扑 DataChannel 传输与 ICE 队列
 ├── controllers/
 │   ├── game_controller.dart           # Riverpod 房间调度中枢（建房/重连/观战/首轮修改与线索重现）
+│   ├── settings_controller.dart       # AIGC 接口地址 / API Key / 模型名称持久化控制器
 │   └── theme_controller.dart          # Material 3 5 套主题管理（默认浅色）与持久化
 └── ui/
     ├── screens/
-    │   ├── home_screen.dart           # 大厅页面（头像昵称、规则入口、房间号/局域网模式切换）
+    │   ├── home_screen.dart           # 大厅页面（头像昵称、设置入口、规则入口、房间号/局域网模式切换）
     │   └── room_screen.dart           # 全屏 IM 聊天室对局界面（响应式单/双栏、阶段栏、房主 FAB）
     ├── widgets/
     │   └── avatar_widget.dart         # 15 款矢量 SVG 头像渲染与 OUT 灰度徽章
     └── modals/
         ├── avatar_picker_dialog.dart  # 分类头像选择弹窗（角色 / 动物 / 赛博）
         ├── blank_guess_dialog.dart    # 白板双词逆袭猜词弹窗
-        ├── host_console_dialog.dart   # 房主控制台（主题相似度筛选、开局、推进、机器人填充）
+        ├── host_console_dialog.dart   # 房主控制台（本地词库 / AIGC 双模式出题、推进、机器人填充）
         ├── identity_card_dialog.dart  # 个人底牌与词语查看弹窗
         ├── night_action_dialog.dart   # 夜晚行动目标选择弹窗
         ├── phase_notice_dialog.dart   # 阶段切换自动确认提示弹窗
@@ -193,7 +211,7 @@ lib/
         ├── player_roster_sheet.dart   # 房间玩家列表与标记状态抽屉
         ├── rule_dialog.dart           # 简洁游戏规则弹窗
         ├── settlement_dialog.dart     # 终局战报全员底牌揭晓弹窗
-        ├── theme_picker_dialog.dart   # 5 套主题实时切换面板
+        ├── settings_dialog.dart       # 统一设置中心（5 套主题切换 + AIGC 接口配置）
         └── vote_dialog.dart           # 白天匿名投票弹窗
 
 test/
@@ -204,7 +222,8 @@ test/
 ├── p2p_and_security_test.dart         # MQTT 协议包、故障切换与快照防作弊脱敏测试
 ├── theme_and_avatar_test.dart         # 默认浅色主题、5 套配色与 15 款 SVG 资源测试
 ├── visual_audit_test.dart             # 移动端与桌面端响应式视觉渲染测试
-└── widget_test.dart                   # 主界面与弹窗交互组件测试
+├── widget_test.dart                   # 主界面与弹窗交互组件测试
+└── word_bank_and_llm_test.dart        # JSON 词库校验、LlmSettings 持久化与 AIGC Tool Calling 测试
 ```
 
 ---

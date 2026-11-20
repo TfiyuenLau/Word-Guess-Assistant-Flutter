@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../controllers/game_controller.dart';
+import '../../controllers/settings_controller.dart';
 import '../../models/game_models.dart';
 import '../../models/protocol_messages.dart';
 import '../modals/blank_guess_dialog.dart';
@@ -12,6 +13,7 @@ import '../modals/night_action_dialog.dart';
 import '../modals/phase_notice_dialog.dart';
 import '../modals/player_mark_dialog.dart';
 import '../modals/player_roster_sheet.dart';
+import '../modals/settings_dialog.dart';
 import '../modals/settlement_dialog.dart';
 import '../modals/vote_dialog.dart';
 import '../widgets/avatar_widget.dart';
@@ -116,13 +118,26 @@ class _RoomScreenState extends ConsumerState<RoomScreen> {
       builder: (_) => Consumer(
         builder: (ctx, dialogRef, _) {
           final liveState = dialogRef.watch(gameControllerProvider);
+          final llmSettings = dialogRef.watch(settingsControllerProvider);
           return HostConsoleDialog(
             playerCount: liveState.players.length,
             currentPhase: liveState.currentPhase,
-            onStartGame: (th, sim) {
-              dialogRef
+            llmConfigured: llmSettings.isConfigured,
+            onOpenSettings: () {
+              showDialog(
+                context: ctx,
+                builder: (_) => const SettingsDialog(),
+              );
+            },
+            onStartGame: (mode, th, sim) {
+              return dialogRef
                   .read(gameControllerProvider.notifier)
-                  .startGame(theme: th, similarity: sim);
+                  .startGame(
+                    sourceMode: mode,
+                    theme: th,
+                    similarity: sim,
+                    llmSettings: dialogRef.read(settingsControllerProvider),
+                  );
             },
             onAdvancePhase: () {
               dialogRef.read(gameControllerProvider.notifier).advancePhase();
