@@ -24,7 +24,7 @@
 - **移动端优先 + 全端响应式布局**：手机端提供全屏沉浸式体验，桌面与 Web 端随窗口尺寸自适应切换单/双栏布局；默认采用清爽**浅色**主题，首页右上角「设置中心」集成 **5 套 Material 3 主题**（浅色、暗夜、赛博、深海、森林）实时热切与本地持久化。
 - **本地 JSON 词库 + AIGC 实时出题双模式**：
   - **本地词库（`assets/word_bank.json`）**：内置 64 组经筛选的中文双词与白板提示，涵盖 `食物`、`家具`、`科技数码`、`自然植物`、`日常生活`、`交通出行`、`文体娱乐`、`文化历史` 8 大分类与两档相似度，完全脱离硬编码、全平台开箱即用。
-  - **AIGC 实时生成**：房主控制台支持一键切换至 `AIGC` 模式并输入自定义主题词，通过兼容 OpenAI Chat Completions Tool Calling 的接口（默认 `ChatAnywhere` + `deepseek-v4.1-flash-1017`，可在首页设置中自定义 API 地址、Key 与模型）实时生成双词与提示。
+  - **AIGC 实时生成**：房主控制台支持一键切换至 `AIGC` 模式并输入任意主题词，通过兼容 OpenAI Chat Completions Tool Calling 的接口（默认 `ChatAnywhere` + `deepseek-v4.1-flash-1017`，推荐搭配开源免费项目 [GPT_API_free](https://github.com/chatanywhere/GPT_API_free) 获取免费 API Key）实时生成双词与提示。
 - **全屏即时通讯式对局体验**：房间内采用纯聊天流交互，点击玩家头像即可弹出本地推理标记框，已出局玩家标记 `OUT` 并禁用操作，阶段切换自动弹窗确认，房主通过悬浮控制按钮推进流程。
 - **双模联机架构**：
   - **4 位房间号（WebRTC P2P）**：全平台（含纯静态 Web）可用，基于公共 EMQX MQTT over WSS（`mqtt` 子协议，内置国际 `broker.emqx.io` / 国内 `broker-cn.emqx.io` 节点自动故障切换）与公共 STUN 服务，免公网 IP 跨网点对点直连。
@@ -98,6 +98,19 @@
     </td>
   </tr>
 </table>
+
+---
+
+## AIGC 出词与免费 API Key 推荐
+
+应用内置两种并行出词模式：**离线本地 JSON 词库**（[`assets/word_bank.json`](assets/word_bank.json)，随安装包打包）与 **AIGC 实时生成**（[`lib/services/llm_word_service.dart`](lib/services/llm_word_service.dart)）。
+
+- **OpenAI Tool Calling 实现**：AIGC 模式将房主输入的任意主题词嵌入 Prompt，并通过标准 OpenAI Chat Completions Function Calling（声明 `submit_word_pair` 工具并显式指定 `tool_choice`）结构化输出「好人词、卧底词与白板共性提示」；同时内置代理绕行与域名容错（当 `api.chatanywhere.tech` 遇代理或网络 TLS 握手中断时自动切换至 `api.chatanywhere.org`）。
+- **免费 AIGC API Key 推荐**：推荐使用开源项目 [**GPT_API_free**](https://github.com/chatanywhere/GPT_API_free) 免费领取 API Key（与本项目默认接口地址完全兼容，支持 `deepseek-v4.1-flash-1017` 等模型）。
+- **快速启用步骤**：
+  1. 在 [GPT_API_free](https://github.com/chatanywhere/GPT_API_free) 获取免费 API Key；
+  2. 点击应用首页右上角 **设置** 按钮，保持默认 API 地址（`https://api.chatanywhere.tech/v1/chat/completions`）与默认模型（`deepseek-v4.1-flash-1017`），填入你的 API Key 并保存（亦可随时替换为任意兼容 OpenAI 格式的自建/中转接口）；
+  3. 房主在控制台切换至 **AIGC**，输入任意主题词即可实时发词开局。
 
 ---
 
