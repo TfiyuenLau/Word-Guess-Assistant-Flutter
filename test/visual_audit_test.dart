@@ -10,21 +10,27 @@ import 'package:word_guess_assistant_flutter/controllers/game_controller.dart';
 import 'package:word_guess_assistant_flutter/controllers/theme_controller.dart';
 import 'package:word_guess_assistant_flutter/models/game_models.dart';
 import 'package:word_guess_assistant_flutter/models/protocol_messages.dart';
+import 'package:word_guess_assistant_flutter/ui/modals/identity_card_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/player_mark_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/modals/settlement_dialog.dart';
 import 'package:word_guess_assistant_flutter/ui/screens/home_screen.dart';
 import 'package:word_guess_assistant_flutter/ui/screens/room_screen.dart';
 
-const _auditDir =
-    '/home/tfiyuen_lau/.gemini/antigravity/brain/32185e6f-fddd-4e78-a21a-d2dcdcecd47e/visual_audit_v2';
+String get _auditDir =>
+    Platform.environment['VISUAL_AUDIT_DIR'] ?? 'assets/screenshots';
 
 bool get _saveScreenshots =>
     Platform.environment['GENERATE_VISUAL_AUDIT'] == '1';
 
 Future<void> _loadAuditFonts() async {
-  const cjkCandidates = [
+  final cjkCandidates = <String>[
+    if ((Platform.environment['VISUAL_AUDIT_CJK_FONT'] ?? '').isNotEmpty)
+      Platform.environment['VISUAL_AUDIT_CJK_FONT']!,
     '/mnt/c/Windows/Fonts/Deng.ttf',
     '/mnt/c/Windows/Fonts/simhei.ttf',
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    '/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc',
+    '/System/Library/Fonts/PingFang.ttc',
   ];
   for (final path in cjkCandidates) {
     final file = File(path);
@@ -37,14 +43,56 @@ Future<void> _loadAuditFonts() async {
     }
   }
 
-  const iconFontPath =
-      '/home/tfiyuen_lau/snap/flutter/common/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf';
-  final iconFile = File(iconFontPath);
-  if (iconFile.existsSync()) {
-    final bytes = await iconFile.readAsBytes();
-    final loader = FontLoader('MaterialIcons')
-      ..addFont(Future.value(ByteData.view(bytes.buffer)));
-    await loader.load();
+  final iconCandidates = <String>[
+    if ((Platform.environment['VISUAL_AUDIT_ICON_FONT'] ?? '').isNotEmpty)
+      Platform.environment['VISUAL_AUDIT_ICON_FONT']!,
+    if ((Platform.environment['FLUTTER_ROOT'] ?? '').isNotEmpty)
+      '${Platform.environment['FLUTTER_ROOT']}/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+  ];
+
+  void addAncestorCandidates(Directory start) {
+    var dir = start;
+    for (var i = 0; i < 8; i++) {
+      iconCandidates.add(
+        '${dir.path}/artifacts/material_fonts/MaterialIcons-Regular.otf',
+      );
+      iconCandidates.add(
+        '${dir.path}/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+      );
+      iconCandidates.add(
+        '${dir.path}/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+      );
+      final parent = dir.parent;
+      if (parent.path == dir.path) break;
+      dir = parent;
+    }
+  }
+
+  addAncestorCandidates(File(Platform.resolvedExecutable).parent);
+  final pathEnv = Platform.environment['PATH'] ?? '';
+  for (final entry in pathEnv.split(Platform.pathSeparator)) {
+    if (entry.isEmpty) continue;
+    final flutterBin = File('$entry/flutter');
+    if (flutterBin.existsSync()) {
+      try {
+        addAncestorCandidates(
+          File(flutterBin.resolveSymbolicLinksSync()).parent,
+        );
+      } catch (_) {
+        addAncestorCandidates(Directory(entry));
+      }
+    }
+  }
+
+  for (final path in iconCandidates) {
+    final iconFile = File(path);
+    if (iconFile.existsSync()) {
+      final bytes = await iconFile.readAsBytes();
+      final loader = FontLoader('MaterialIcons')
+        ..addFont(Future.value(ByteData.view(bytes.buffer)));
+      await loader.load();
+      break;
+    }
   }
 }
 
@@ -198,7 +246,7 @@ void main() {
   });
 
   testWidgets(
-      'Visual layout audit v2 across mobile (390x844) and desktop (1100x760) in Light default + Dark sanity',
+      'Visual layout screenshots across mobile (390x844) and desktop (1100x760) in Light default + Dark sanity',
       (tester) async {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -225,68 +273,90 @@ void main() {
       );
     }
 
-    // 01. HomeScreen Mobile Light (390x844)
-    tester.view.physicalSize = const Size(390, 844);
-    await tester.pumpWidget(wrap(const HomeScreen()));
-    await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '01_home_mobile_light.png');
+    Widget overlayOnRoom(Widget dialog, RoomState room) {
+      final ctrl = _StaticRoomController(room);
+      return wrap(
+        Stack(
+          children: [
+            const IgnorePointer(child: RoomScreen()),
+            const ModalBarrier(dismissible: false, color: Colors.black54),
+            Center(child: dialog),
+          ],
+        ),
+        overrides: [gameControllerProvider.overrideWith((_) => ctrl)],
+      );
+    }
 
-    // 02. HomeScreen Desktop Light (1100x760)
-    tester.view.physicalSize = const Size(1100, 760);
-    await tester.pumpWidget(wrap(const HomeScreen()));
-    await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '02_home_desktop_light.png');
+    final prevDisableShadows = debugDisableShadows;
+    if (_saveScreenshots) {
+      debugDisableShadows = false;
+    }
+    try {
+      // 1. HomeScreen Mobile Light (390x844)
+      tester.view.physicalSize = const Size(390, 844);
+      await tester.pumpWidget(wrap(const HomeScreen()));
+      await tester.pumpAndSettle();
+      await _capture(tester, boundaryKey, 'home_mobile.png');
 
-    // 03. HomeScreen LAN Desktop Light (1100x760)
-    await tester.tap(find.text('局域网'));
-    await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '03_home_lan_desktop_light.png');
+      // 2. IdentityCardDialog overlaid on RoomScreen Mobile Light (390x844)
+      await tester.pumpWidget(
+        overlayOnRoom(
+          const IdentityCardDialog(
+            identity: IdentityAssignment(
+              role: GameRoles.agent,
+              word: '拿铁咖啡',
+              hint: '',
+            ),
+          ),
+          _makeRoom(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('点击查看'));
+      await tester.pumpAndSettle();
+      await _capture(tester, boundaryKey, 'identity_card_mobile.png');
 
-    // 04. RoomScreen Mobile Light (390x844)
-    tester.view.physicalSize = const Size(390, 844);
-    final roomMobileCtrl = _StaticRoomController(_makeRoom());
-    await tester.pumpWidget(wrap(
-      const RoomScreen(),
-      overrides: [gameControllerProvider.overrideWith((_) => roomMobileCtrl)],
-    ));
-    await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '04_room_mobile_light.png');
+      // 3. RoomScreen Mobile Light (390x844)
+      final roomMobileCtrl = _StaticRoomController(_makeRoom());
+      await tester.pumpWidget(wrap(
+        const RoomScreen(),
+        overrides: [gameControllerProvider.overrideWith((_) => roomMobileCtrl)],
+      ));
+      await tester.pumpAndSettle();
+      await _capture(tester, boundaryKey, 'room_chat_mobile.png');
 
-    // 05. RoomScreen Desktop Light (1100x760)
-    tester.view.physicalSize = const Size(1100, 760);
-    final roomDesktopCtrl = _StaticRoomController(_makeRoom());
-    await tester.pumpWidget(wrap(
-      const RoomScreen(),
-      overrides: [gameControllerProvider.overrideWith((_) => roomDesktopCtrl)],
-    ));
-    await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '05_room_desktop_light.png');
+      // 4. PlayerMarkDialog overlaid on RoomScreen Mobile Light (390x844)
+      await tester.pumpWidget(
+        overlayOnRoom(
+          PlayerMarkDialog(
+            player: const Player(
+              id: 'p_2',
+              name: 'AI · Alpha',
+              avatar: 'animals/fox.svg',
+            ),
+            currentMark: GameRoles.spy,
+            onMarkSelected: (_) {},
+          ),
+          _makeRoom(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _capture(tester, boundaryKey, 'player_mark_mobile.png');
 
-    // 09. Dark Theme Desktop Sanity Check (1100x760)
-    final roomDarkCtrl = _StaticRoomController(_makeRoom());
-    await tester.pumpWidget(wrap(
-      const RoomScreen(),
-      theme: AppThemeType.night,
-      overrides: [gameControllerProvider.overrideWith((_) => roomDarkCtrl)],
-    ));
-    await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '09_room_desktop_dark.png');
+      // 5. RoomScreen Voting Mobile Light (390x844)
+      final voteCtrl =
+          _StaticRoomController(_makeRoom(phase: GamePhase.voting));
+      await tester.pumpWidget(wrap(
+        const RoomScreen(),
+        overrides: [gameControllerProvider.overrideWith((_) => voteCtrl)],
+      ));
+      await tester.pumpAndSettle();
+      await _capture(tester, boundaryKey, 'room_voting_mobile.png');
 
-    // 06. RoomScreen Voting Mobile Light (390x844)
-    tester.view.physicalSize = const Size(390, 844);
-    final voteCtrl = _StaticRoomController(_makeRoom(phase: GamePhase.voting));
-    await tester.pumpWidget(wrap(
-      const RoomScreen(),
-      overrides: [gameControllerProvider.overrideWith((_) => voteCtrl)],
-    ));
-    await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '06_room_voting_light.png');
-
-    // 07. SettlementDialog Mobile Light (390x844)
-    await tester.pumpWidget(wrap(
-      Scaffold(
-        body: Center(
-          child: SettlementDialog(
+      // 6. SettlementDialog overlaid on RoomScreen Mobile Light (390x844)
+      await tester.pumpWidget(
+        overlayOnRoom(
+          SettlementDialog(
             details: const SettlementDetails(
               winnerCamp: GameRoles.good,
               goodWord: '拿铁咖啡',
@@ -333,29 +403,38 @@ void main() {
             ),
             onDismiss: () {},
           ),
+          _makeRoom(phase: GamePhase.settlement),
         ),
-      ),
-    ));
-    await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '07_settlement_light.png');
+      );
+      await tester.pumpAndSettle();
+      await _capture(tester, boundaryKey, 'settlement_mobile.png');
 
-    // 08. PlayerMarkDialog Mobile Light (390x844)
-    await tester.pumpWidget(wrap(
-      Scaffold(
-        body: Center(
-          child: PlayerMarkDialog(
-            player: const Player(
-              id: 'p_2',
-              name: 'AI · Alpha',
-              avatar: 'animals/fox.svg',
-            ),
-            currentMark: GameRoles.spy,
-            onMarkSelected: (_) {},
-          ),
-        ),
-      ),
-    ));
-    await tester.pumpAndSettle();
-    await _capture(tester, boundaryKey, '08_player_mark_light.png');
+      // 7. HomeScreen Desktop Light (1100x760)
+      tester.view.physicalSize = const Size(1100, 760);
+      await tester.pumpWidget(wrap(const HomeScreen()));
+      await tester.pumpAndSettle();
+      await _capture(tester, boundaryKey, 'home_desktop.png');
+
+      // 8. RoomScreen Desktop Light (1100x760)
+      final roomDesktopCtrl = _StaticRoomController(_makeRoom());
+      await tester.pumpWidget(wrap(
+        const RoomScreen(),
+        overrides: [gameControllerProvider.overrideWith((_) => roomDesktopCtrl)],
+      ));
+      await tester.pumpAndSettle();
+      await _capture(tester, boundaryKey, 'room_desktop_light.png');
+
+      // 9. Dark Theme Desktop Sanity Check (1100x760)
+      final roomDarkCtrl = _StaticRoomController(_makeRoom());
+      await tester.pumpWidget(wrap(
+        const RoomScreen(),
+        theme: AppThemeType.night,
+        overrides: [gameControllerProvider.overrideWith((_) => roomDarkCtrl)],
+      ));
+      await tester.pumpAndSettle();
+      await _capture(tester, boundaryKey, 'room_desktop_dark.png');
+    } finally {
+      debugDisableShadows = prevDisableShadows;
+    }
   });
 }

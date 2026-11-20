@@ -29,6 +29,62 @@
 
 ---
 
+## 界面预览
+
+### 移动端主流程（默认浅色）
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="assets/screenshots/home_mobile.png" width="240" alt="主界面（房间号 / 局域网切换）" /><br />
+      <sub>主界面（房间号 / 局域网切换）</sub>
+    </td>
+    <td align="center">
+      <img src="assets/screenshots/identity_card_mobile.png" width="240" alt="查看盲盒底牌词语" /><br />
+      <sub>查看盲盒底牌词语</sub>
+    </td>
+    <td align="center">
+      <img src="assets/screenshots/room_chat_mobile.png" width="240" alt="全屏 IM 对局与描述发言" /><br />
+      <sub>全屏 IM 对局与描述发言</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="assets/screenshots/player_mark_mobile.png" width="240" alt="点击头像本地推理标记" /><br />
+      <sub>点击头像本地推理标记</sub>
+    </td>
+    <td align="center">
+      <img src="assets/screenshots/room_voting_mobile.png" width="240" alt="白天匿名投票阶段" /><br />
+      <sub>白天匿名投票阶段</sub>
+    </td>
+    <td align="center">
+      <img src="assets/screenshots/settlement_mobile.png" width="240" alt="终局战报与全员身份揭晓" /><br />
+      <sub>终局战报与全员身份揭晓</sub>
+    </td>
+  </tr>
+</table>
+
+### 桌面端响应式布局与主题切换
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="assets/screenshots/home_desktop.png" width="280" alt="桌面端双栏主界面" /><br />
+      <sub>桌面端双栏主界面</sub>
+    </td>
+    <td align="center">
+      <img src="assets/screenshots/room_desktop_light.png" width="280" alt="桌面端浅色对局" /><br />
+      <sub>桌面端浅色对局</sub>
+    </td>
+    <td align="center">
+      <img src="assets/screenshots/room_desktop_dark.png" width="280" alt="桌面端暗夜主题" /><br />
+      <sub>桌面端暗夜主题</sub>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## 游戏规则与流程
 
 ### 1. 4~12 人动态身份配比
@@ -86,6 +142,10 @@ flowchart TD
 ## 项目结构
 
 ```text
+assets/
+├── avatars/                           # 15 款矢量 SVG 头像（characters / animals / cyber）
+└── screenshots/                       # README 展示用界面与对局截图（不打包进应用体积）
+
 lib/
 ├── main.dart                          # 应用入口、Riverpod 注入与自适应窗口/主题装配
 ├── models/
@@ -152,8 +212,8 @@ test/
 ### 2. 拉取代码与安装依赖
 
 ```bash
-git clone https://github.com/TfiyuenLau/Word-Guess-Assistant.git
-cd Word-Guess-Assistant
+git clone https://github.com/TfiyuenLau/Word-Guess-Assistant-Flutter.git
+cd Word-Guess-Assistant-Flutter
 
 # 国内网络环境可选配置官方镜像
 export PUB_HOSTED_URL="https://pub.flutter-io.cn"
