@@ -364,5 +364,98 @@ void main() {
         throwsFormatException,
       );
     });
+
+    test('api.chatanywhere.tech TLS 握手失败时自动切换至 api.chatanywhere.org', () async {
+      final visitedUrls = <String>[];
+      final mockClient = MockClient((request) async {
+        visitedUrls.add(request.url.toString());
+        if (request.url.host == 'api.chatanywhere.tech') {
+          throw http.ClientException(
+            'HandshakeException: Connection terminated during handshake',
+            request.url,
+          );
+        }
+        final responsePayload = {
+          'choices': [
+            {
+              'message': {
+                'role': 'assistant',
+                'tool_calls': [
+                  {
+                    'id': 'call_fallback',
+                    'type': 'function',
+                    'function': {
+                      'name': 'submit_word_pair',
+                      'arguments': jsonEncode({
+                        'good_word': '火锅',
+                        'spy_word': '麻辣烫',
+                        'blank_hint': '热辣滚烫的中式美食',
+                      }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        };
+        return http.Response.bytes(utf8.encode(jsonEncode(responsePayload)), 200);
+      });
+
+      final service = LlmWordService(client: mockClient);
+      final pair = await service.generateWordPair(
+        settings: const LlmSettings(
+          apiUrl: 'https://api.chatanywhere.tech/v1/chat/completions',
+          apiKey: 'sk-test-key',
+        ),
+        topic: 'Food',
+      );
+
+      expect(visitedUrls, [
+        'https://api.chatanywhere.tech/v1/chat/completions',
+        'https://api.chatanywhere.org/v1/chat/completions',
+      ]);
+      expect(pair.wordA, '火锅');
+      expect(pair.wordB, '麻辣烫');
+      expect(pair.category, 'Food');
+    });
+
+    test('HTTP 401 鉴权错误不触发镜像切换，且全节点传输失败返回明确错误提示', () async {
+      final visitedUrls401 = <String>[];
+      final service401 = LlmWordService(
+        client: MockClient((request) async {
+          visitedUrls401.add(request.url.toString());
+          return http.Response.bytes(
+            utf8.encode(jsonEncode({
+              'error': {'message': 'Invalid API key'},
+            })),
+            401,
+          );
+        }),
+      );
+      await expectLater(
+        service401.generateWordPair(
+          settings: const LlmSettings(apiKey: 'sk-bad'),
+        ),
+        throwsA(predicate((e) => e.toString().contains('401'))),
+      );
+      expect(visitedUrls401, ['https://api.chatanywhere.tech/v1/chat/completions']);
+
+      final serviceAllFail = LlmWordService(
+        client: MockClient((request) async {
+          throw http.ClientException(
+            'HandshakeException: Connection terminated during handshake',
+            request.url,
+          );
+        }),
+      );
+      await expectLater(
+        serviceAllFail.generateWordPair(
+          settings: const LlmSettings(apiKey: 'sk-ok'),
+        ),
+        throwsA(predicate((e) =>
+            e.toString().contains('连接 AIGC 接口失败') &&
+            e.toString().contains('HandshakeException'))),
+      );
+    });
   });
 }

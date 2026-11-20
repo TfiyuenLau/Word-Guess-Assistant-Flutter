@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../controllers/settings_controller.dart';
 import '../models/word_bank.dart';
+import 'llm_http_client.dart';
 
 /// 基于 OpenAI Chat Completions Tool Calling 的实时双词生成服务
 /// （不依赖 dart:io，全面兼容 Web / 桌面 / 移动端）
@@ -111,21 +112,17 @@ class LlmWordService {
       },
     };
 
-    late final http.Response response;
-    try {
-      response = await _client
-          .post(
-            uri,
-            headers: {
-              'Authorization': 'Bearer $trimmedKey',
-              'Content-Type': 'application/json; charset=UTF-8',
-            },
-            body: jsonEncode(requestBody),
-          )
-          .timeout(timeout);
-    } on TimeoutException {
-      throw Exception('AIGC 请求超时（>${timeout.inSeconds}秒），请稍后重试');
-    }
+    final headers = <String, String>{
+      'Authorization': 'Bearer $trimmedKey',
+      'Content-Type': 'application/json; charset=UTF-8',
+    };
+    final encodedBody = jsonEncode(requestBody);
+
+    final response = await _postWithTransportFallback(
+      primaryUri: uri,
+      headers: headers,
+      body: encodedBody,
+    );
 
     final bodyText = utf8.decode(response.bodyBytes, allowMalformed: true);
     if (response.statusCode != 200) {
@@ -175,6 +172,76 @@ class LlmWordService {
       similarity: effectiveSimilarity,
       category: effectiveTopic,
     );
+  }
+
+  Future<http.Response> _postWithTransportFallback({
+    required Uri primaryUri,
+    required Map<String, String> headers,
+    required String body,
+  }) async {
+    final candidates = _buildTransportCandidates(primaryUri);
+    Object? lastError;
+
+    for (var i = 0; i < candidates.length; i++) {
+      final candidate = candidates[i];
+      http.Client? ephemeralDirectClient;
+      final http.Client activeClient;
+
+      if (candidate.direct) {
+        ephemeralDirectClient = createDirectHttpClient();
+        if (ephemeralDirectClient == null) continue;
+        activeClient = ephemeralDirectClient;
+      } else {
+        activeClient = _client;
+      }
+
+      try {
+        return await activeClient
+            .post(candidate.uri, headers: headers, body: body)
+            .timeout(timeout);
+      } catch (e) {
+        final isTransportErr =
+            e is TimeoutException || isTransportConnectionError(e);
+        if (!isTransportErr) {
+          rethrow;
+        }
+        lastError = e;
+      } finally {
+        ephemeralDirectClient?.close();
+      }
+    }
+
+    if (lastError is TimeoutException) {
+      throw Exception('AIGC 请求超时（>${timeout.inSeconds}秒），请检查网络或代理设置');
+    }
+    throw Exception(
+      '连接 AIGC 接口失败，请检查网络、系统代理或 API 地址（ChatAnywhere 代理环境可尝试 https://api.chatanywhere.org）: $lastError',
+    );
+  }
+
+  List<({Uri uri, bool direct})> _buildTransportCandidates(Uri primaryUri) {
+    final candidates = <({Uri uri, bool direct})>[
+      (uri: primaryUri, direct: false),
+    ];
+
+    if (primaryUri.host == 'api.chatanywhere.tech') {
+      candidates.add(
+        (uri: primaryUri.replace(host: 'api.chatanywhere.org'), direct: false),
+      );
+      if (_ownsClient) {
+        candidates.add((uri: primaryUri, direct: true));
+      }
+    } else if (primaryUri.host == 'api.chatanywhere.org') {
+      final techUri = primaryUri.replace(host: 'api.chatanywhere.tech');
+      if (_ownsClient) {
+        candidates.add((uri: techUri, direct: true));
+      }
+      candidates.add((uri: techUri, direct: false));
+    } else if (_ownsClient) {
+      candidates.add((uri: primaryUri, direct: true));
+    }
+
+    return candidates;
   }
 
   String? _extractApiErrorMessage(String bodyText) {
