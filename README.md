@@ -9,7 +9,7 @@
   <a href="https://github.com/TfiyuenLau/Word-Guess-Assistant-Flutter/actions/workflows/release.yml"><img src="https://github.com/TfiyuenLau/Word-Guess-Assistant-Flutter/actions/workflows/release.yml/badge.svg" alt="Release" /></a>
   <img src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white" alt="Flutter 3.x" />
   <img src="https://img.shields.io/badge/Dart-3.x-0175C2?logo=dart&logoColor=white" alt="Dart 3.x" />
-  <img src="https://img.shields.io/badge/Platforms-Android%20%7C%20Linux%20%7C%20Windows%20%7C%20Web-4CAF50" alt="Platforms" />
+  <img src="https://img.shields.io/badge/Platforms-Android%20%7C%20iOS%20%7C%20macOS%20%7C%20Linux%20%7C%20Windows%20%7C%20Web-4CAF50" alt="Platforms" />
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" />
 </p>
 
@@ -268,6 +268,21 @@ flutter test
   flutter build windows --release
   ```
 
+- **macOS 桌面端**
+
+  ```bash
+  flutter run -d macos
+  flutter build macos --release
+  # 构建产物位于 build/macos/Build/Products/Release/word_guess_assistant_flutter.app
+  ```
+
+- **iOS 移动端**
+
+  ```bash
+  flutter build ios --release --no-codesign
+  # 未签名构建产物位于 build/ios/iphoneos/Runner.app
+  ```
+
 ---
 
 ## 自动化构建与发版 (GitHub Actions)
@@ -283,7 +298,7 @@ flutter test
 
 ### 2. 多平台发行包统一构建 (`release.yml`)
 
-前置校验（`verify` 任务执行 `flutter analyze` 与 `flutter test`）通过后，并行构建各平台产物并汇总生成 `SHA256SUMS.txt`（聚合制品 `release-bundle`）：
+前置校验（`verify` 任务执行 `flutter analyze` 与 `flutter test`）通过后，默认并行构建全 **6 大平台**（Android / Windows / Linux / Web / macOS / iOS）产物并汇总生成 `SHA256SUMS.txt`（聚合制品 `release-bundle`）：
 
 | 平台 | 运行环境 | Artifact 名称 | 发行包产物命名 | 备注 |
 | :--- | :--- | :--- | :--- | :--- |
@@ -291,22 +306,22 @@ flutter test
 | **Windows (x64)** | `windows-latest` | `windows-dist` | `word-guess-assistant-<version>-windows-x64.zip` | 内含完整 Release 运行时与 `libwebrtc.dll` |
 | **Linux (x64)** | `ubuntu-latest` | `linux-dist` | `word-guess-assistant-<version>-linux-x64.tar.gz` | 打包 `bundle/` 可执行文件及 GTK/WebRTC 依赖库 |
 | **Web** | `ubuntu-latest` | `web-dist` | `word-guess-assistant-<version>-web.zip` | 纯静态站点打包，可直接部署至任意静态托管 |
-| **macOS（可选）** | `macos-latest` | `macos-dist` | `word-guess-assistant-<version>-macos-unsigned.zip` | 仅手动勾选 `include_macos` 时构建（未签名） |
-| **iOS（可选）** | `macos-latest` | `ios-dist` | `word-guess-assistant-<version>-ios-unsigned.ipa` | 仅手动勾选 `include_ios` 时构建（`--no-codesign` 未签名） |
+| **macOS** | `macos-latest` | `macos-dist` | `word-guess-assistant-<version>-macos-unsigned.zip` | 默认随发版构建；未配置苹果开发者签名证书时产出未签名（Ad-hoc）`.app` 压缩包 |
+| **iOS** | `macos-latest` | `ios-dist` | `word-guess-assistant-<version>-ios-unsigned.ipa` | 默认随发版构建；未配置苹果开发者签名证书时使用 `--no-codesign` 产出未签名 `.ipa` |
 
 > [!NOTE]
-> **macOS / iOS 暂缓默认自动触发原因**：CI 环境在无苹果开发者证书与描述文件时仅能生成未签名产物（iOS `--no-codesign` `.ipa` 无法直接安装于未越狱真机，且仓库暂未纳入 `ios/Podfile` 锁定与 macOS 网络沙盒 Entitlements 配置）。为避免证书或工程配置缺失阻断主发布链路，二者设为 `workflow_dispatch` 可选触发且标记 `continue-on-error: true`。
+> **macOS / iOS 未签名产物说明**：当前 CI 未配置苹果开发者签名证书与描述文件，因此 `build-macos` 产出 Ad-hoc 签名的 `.zip`（首次打开若遇门禁拦截需在系统设置或通过 `xattr` 放行），`build-ios` 使用 `--no-codesign` 产出未签名 `.ipa`（需自签或配合 AltStore 等工具安装至 iOS 设备）。两个平台任务在 `v*` 标签发版与 `workflow_dispatch` 中均默认启用并严格校验结果（仅当手动取消勾选 `include_macos` / `include_ios` 时跳过）。
 
 ### 3. 发版方式
 
-- **推送 `v*` 标签自动发布**：推送符合 `v*` 格式的标签（如 `git tag v1.0.0 && git push origin v1.0.0`），工作流将自动完成校验、全量 Tier-1 平台打包、生成 `SHA256SUMS.txt` 并发布 GitHub Release（`Word Guess Assistant <tag>`）。
+- **推送 `v*` 标签自动发布**：推送符合 `v*` 格式的标签（如 `git tag v1.0.0 && git push origin v1.0.0`），工作流将自动完成校验、全量 6 平台（Android、Windows、Linux、Web、macOS、iOS）打包、生成 `SHA256SUMS.txt` 并发布 GitHub Release（`Word Guess Assistant <tag>`）。
 - **Actions 页面手动触发 (`workflow_dispatch`)**：在仓库 **Actions → Release → Run workflow** 可手动触发，支持以下输入参数：
 
 | 输入参数 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `version_tag` | `string` | `''` | 自定义版本标签（如 `v1.0.0`）；留空则使用 `v<pubspec>-build.<run_number>` |
-| `include_macos` | `boolean` | `false` | 勾选后附加构建未签名 macOS `.zip` |
-| `include_ios` | `boolean` | `false` | 勾选后附加构建未签名 iOS `.ipa` |
+| `include_macos` | `boolean` | `true` | 是否构建未签名 macOS `.zip`（默认启用，取消勾选可跳过） |
+| `include_ios` | `boolean` | `true` | 是否构建未签名 iOS `.ipa`（默认启用，取消勾选可跳过） |
 | `create_release` | `boolean` | `false` | 勾选后同步发布 GitHub Release；未勾选时仅上传 Workflow Artifacts（`v*` 标签推送始终自动发布） |
 
 ### 4. Android 正式签名配置（可选）

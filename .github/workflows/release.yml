@@ -12,15 +12,15 @@ on:
         type: string
         default: ''
       include_macos:
-        description: 'Include optional unsigned macOS build (macos-latest)'
+        description: 'Include unsigned macOS build (macos-latest)'
         required: false
         type: boolean
-        default: false
+        default: true
       include_ios:
-        description: 'Include optional unsigned iOS build (macos-latest, --no-codesign)'
+        description: 'Include unsigned iOS build (macos-latest, --no-codesign)'
         required: false
         type: boolean
-        default: false
+        default: true
       create_release:
         description: 'Publish GitHub Release on manual dispatch (always true for v* tags)'
         required: false
@@ -315,10 +315,9 @@ jobs:
           if-no-files-found: error
 
   build-macos:
-    name: Build macOS (Optional Unsigned)
+    name: Build macOS (Unsigned)
     needs: verify
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_macos == true }}
-    continue-on-error: true
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.include_macos }}
     runs-on: macos-latest
 
     steps:
@@ -359,10 +358,9 @@ jobs:
           if-no-files-found: error
 
   build-ios:
-    name: Build iOS (Optional Unsigned)
+    name: Build iOS (Unsigned)
     needs: verify
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_ios == true }}
-    continue-on-error: true
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.include_ios }}
     runs-on: macos-latest
 
     steps:
@@ -411,7 +409,7 @@ jobs:
       - build-web
       - build-macos
       - build-ios
-    if: ${{ always() && !cancelled() && needs.verify.result == 'success' && needs.build-android.result == 'success' && needs.build-windows.result == 'success' && needs.build-linux.result == 'success' && needs.build-web.result == 'success' }}
+    if: ${{ always() && !cancelled() && needs.verify.result == 'success' && needs.build-android.result == 'success' && needs.build-windows.result == 'success' && needs.build-linux.result == 'success' && needs.build-web.result == 'success' && (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped') && (needs.build-ios.result == 'success' || needs.build-ios.result == 'skipped') }}
     permissions:
       contents: write
     runs-on: ubuntu-latest
